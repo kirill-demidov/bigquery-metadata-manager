@@ -1,0 +1,69 @@
+steps:
+  # Сборка Docker образа
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/tables-and-columns-description:$SHORT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/tables-and-columns-description:latest'
+      - '.'
+
+  # Отправка образа в Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/tables-and-columns-description:$SHORT_SHA'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/tables-and-columns-description:latest'
+
+  # Развертывание Cloud Run Job
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'jobs'
+      - 'update'
+      - 'tables-and-columns-description'
+      - '--image=gcr.io/$PROJECT_ID/tables-and-columns-description:$SHORT_SHA'
+      - '--region=europe-west1'
+      - '--memory=2Gi'
+      - '--cpu=2'
+      - '--max-retries=1'
+      - '--task-timeout=3600'
+      - '--set-env-vars=OPENAI_API_KEY=${_OPENAI_API_KEY}'
+      - '--project=$PROJECT_ID'
+    # Если job не существует, создаем его
+    waitFor: ['-']
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'jobs'
+      - 'create'
+      - 'tables-and-columns-description'
+      - '--image=gcr.io/$PROJECT_ID/tables-and-columns-description:$SHORT_SHA'
+      - '--region=europe-west1'
+      - '--memory=2Gi'
+      - '--cpu=2'
+      - '--max-retries=1'
+      - '--task-timeout=3600'
+      - '--set-env-vars=OPENAI_API_KEY=${_OPENAI_API_KEY}'
+      - '--project=$PROJECT_ID'
+    waitFor: ['-']
+    # Игнорируем ошибку, если job уже существует
+
+images:
+  - 'gcr.io/$PROJECT_ID/tables-and-columns-description:$SHORT_SHA'
+  - 'gcr.io/$PROJECT_ID/tables-and-columns-description:latest'
+
+options:
+  machineType: 'E2_HIGHCPU_8'
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: '1200s'
+
