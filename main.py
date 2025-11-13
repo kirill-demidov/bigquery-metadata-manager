@@ -28,6 +28,87 @@ import json
 from threading import Lock
 import re
 import os
+import logging
+
+# ============================================================================
+# SECURITY CONFIGURATION
+# ============================================================================
+
+# Паттерны для определения чувствительных таблиц/колонок
+SENSITIVE_PATTERNS = [
+    r'.*pii.*', r'.*personal.*', r'.*ssn.*', r'.*password.*',
+    r'.*credit.*card.*', r'.*payment.*', r'.*secret.*', r'.*token.*',
+    r'.*auth.*', r'.*credential.*'
+]
+
+# Whitelist/Blacklist датасетов (опционально)
+ALLOWED_DATASETS = None  # None = все разрешены, или список: ["analytics", "staging"]
+BLOCKED_DATASETS = []    # Список заблокированных датасетов: ["pii", "sensitive"]
+
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+def is_sensitive_name(name):
+    """Проверка, является ли имя чувствительным"""
+    if not name:
+        return False
+    name_lower = name.lower()
+    return any(re.search(pattern, name_lower) for pattern in SENSITIVE_PATTERNS)
+
+def mask_table_name(table_fqn):
+    """Маскирование чувствительных имен таблиц"""
+    if is_sensitive_name(table_fqn):
+        return "sensitive_table"
+    return table_fqn
+
+def validate_table_name(table_name):
+    """Валидация имени таблицы BigQuery"""
+    if not table_name or len(table_name) > 1024:
+        raise ValueError(f"Invalid table name length: {table_name}")
+    # BigQuery имена могут содержать только буквы, цифры, подчеркивания
+    if not re.match(r'^[a-zA-Z0-9_]+$', table_name):
+        raise ValueError(f"Invalid characters in table name: {table_name}")
+    return table_name
+
+def validate_dataset_name(dataset_id):
+    """Валидация имени датасета BigQuery"""
+    if not dataset_id or len(dataset_id) > 1024:
+        raise ValueError(f"Invalid dataset name length: {dataset_id}")
+    if not re.match(r'^[a-zA-Z0-9_]+$', dataset_id):
+        raise ValueError(f"Invalid characters in dataset name: {dataset_id}")
+    return dataset_id
+
+def should_process_table(dataset_id, table_name):
+    """Проверка, должна ли таблица обрабатываться"""
+    # Валидация имен
+    try:
+        validate_dataset_name(dataset_id)
+        validate_table_name(table_name)
+    except ValueError as e:
+        logger.warning(f"Skipping invalid table {dataset_id}.{table_name}: {e}")
+        return False
+    
+    # Проверка blacklist
+    if dataset_id in BLOCKED_DATASETS:
+        logger.info(f"Skipping blocked dataset: {dataset_id}")
+        return False
+    
+    # Проверка whitelist
+    if ALLOWED_DATASETS is not None and dataset_id not in ALLOWED_DATASETS:
+        logger.info(f"Skipping dataset not in whitelist: {dataset_id}")
+        return False
+    
+    # Проверка чувствительности
+    table_fqn = f"{dataset_id}.{table_name}"
+    if is_sensitive_name(table_fqn):
+        logger.warning(f"Skipping sensitive table: {mask_table_name(table_fqn)}")
+        return False
+    
+    return True
 
 # ============================================================================
 # CONFIGURATION
@@ -87,10 +168,14 @@ def get_table_type(project_id, dataset_id, table_name):
         return "UNKNOWN"
 
 def generate_column_description_ai(column_name, data_type, table_fqn, max_retries=MAX_RETRIES):
+    # Маскирование чувствительных данных перед отправкой в OpenAI
+    safe_table_fqn = mask_table_name(table_fqn)
+    safe_column_name = "column" if is_sensitive_name(column_name) else column_name
+    
     prompt = f"""You are a data analyst. Write a detailed, professional description (1-2 sentences) for this database column.
 
-Table: {table_fqn}
-Column: {column_name}
+Table: {safe_table_fqn}
+Column: {safe_column_name}
 Data Type: {data_type}
 
 The description should:
@@ -136,12 +221,17 @@ Write ONLY the description, no preamble or extra text."""
     return f"Data field for {column_name.replace('_', ' ')}"
 
 def generate_batch_column_descriptions(columns_batch, table_fqn, max_retries=MAX_RETRIES):
-    columns_info = "\n".join([f"- {c['column_name']} ({c['data_type']})" for c in columns_batch])
+    # Маскирование чувствительных данных перед отправкой в OpenAI
+    safe_table_fqn = mask_table_name(table_fqn)
+    safe_columns_info = "\n".join([
+        f"- {'column' if is_sensitive_name(c['column_name']) else c['column_name']} ({c['data_type']})" 
+        for c in columns_batch
+    ])
     prompt = f"""You are a data analyst. Write detailed, professional descriptions for these database columns.
 
-Table: {table_fqn}
+Table: {safe_table_fqn}
 Columns:
-{columns_info}
+{safe_columns_info}
 
 For EACH column, write a description (1-2 sentences) that:
 - Explains what data this column stores
@@ -203,12 +293,17 @@ Write ONLY valid JSON."""
     return None
 
 def generate_table_description_ai(table_fqn, columns_df, max_retries=MAX_RETRIES):
+    # Маскирование чувствительных данных перед отправкой в OpenAI
+    safe_table_fqn = mask_table_name(table_fqn)
     sample_columns = columns_df.head(20)
-    columns_with_types = [f"{row['column_name']} ({row['data_type']})" for _, row in sample_columns.iterrows()]
+    columns_with_types = [
+        f"{'column' if is_sensitive_name(row['column_name']) else row['column_name']} ({row['data_type']})" 
+        for _, row in sample_columns.iterrows()
+    ]
     columns_list = ", ".join(columns_with_types)
     prompt = f"""You are a data analyst. Analyze this BigQuery table and write a comprehensive description (3-4 sentences).
 
-Table: {table_fqn}
+Table: {safe_table_fqn}
 Total columns: {len(columns_df)}
 Sample columns: {columns_list}
 
@@ -321,8 +416,16 @@ def main():
         current_table = row["table_name"]
         table_fqn     = f"{dataset_id}.{current_table}"
 
+        # Проверка безопасности перед обработкой
+        if not should_process_table(dataset_id, current_table):
+            logger.info(f"Skipping table {table_fqn} due to security policy")
+            total_tables_skipped += 1
+            continue
+
+        # Безопасное логирование (маскирование чувствительных имен)
+        safe_table_name = mask_table_name(table_fqn) if is_sensitive_name(table_fqn) else table_fqn
         print(f"\n{'='*80}")
-        print(f"[{idx}/{len(tables_to_process)}] TABLE: {table_fqn}")
+        print(f"[{idx}/{len(tables_to_process)}] TABLE: {safe_table_name}")
         print(f"Time: {datetime.now().strftime('%H:%M:%S')} | Elapsed: {(time.time()-t0)/60:.1f} min")
         print(f"{'='*80}")
 
@@ -333,26 +436,38 @@ def main():
         if is_materialized_view:
             total_materialized_views += 1
 
-        # Колонки конкретной таблицы (per dataset)
+        # Колонки конкретной таблицы (per dataset) - используем параметризованный запрос
         q_cols = f"""
         SELECT table_name, column_name, data_type
         FROM `{PROJECT_ID}.{dataset_id}.INFORMATION_SCHEMA.COLUMNS`
-        WHERE table_name = '{current_table}'
+        WHERE table_name = @table_name
         ORDER BY column_name
         """
-        df_cols = bq_client.query(q_cols).to_dataframe()
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("table_name", "STRING", current_table)
+            ]
+        )
+        df_cols = bq_client.query(q_cols, job_config=job_config).to_dataframe()
         print(f"Total columns in table: {len(df_cols)}")
 
-        # Метаданные из мета-таблиц
+        # Метаданные из мета-таблиц - используем параметризованный запрос
         try:
             q_existing_cols = f"""
             SELECT dataset, table_name, column_name, generated_description
             FROM `{PROJECT_ID}.{METADATA_DATASET_ID}.column_descriptions`
-            WHERE dataset = '{dataset_id}' AND table_name = '{current_table}'
+            WHERE dataset = @dataset_id AND table_name = @table_name
             """
-            existing_columns_df = bq_client.query(q_existing_cols).to_dataframe()
+            job_config = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("dataset_id", "STRING", dataset_id),
+                    bigquery.ScalarQueryParameter("table_name", "STRING", current_table)
+                ]
+            )
+            existing_columns_df = bq_client.query(q_existing_cols, job_config=job_config).to_dataframe()
             print(f"Existing column descriptions (meta): {len(existing_columns_df)}")
-        except:
+        except Exception as e:
+            logger.warning(f"Failed to fetch existing column descriptions: {e}", exc_info=True)
             existing_columns_df = pd.DataFrame(columns=['dataset','table_name','column_name','generated_description'])
             print("Existing column descriptions (meta): 0")
 
@@ -360,13 +475,20 @@ def main():
             q_existing_table = f"""
             SELECT dataset, table_name, table_description
             FROM `{PROJECT_ID}.{METADATA_DATASET_ID}.table_descriptions`
-            WHERE dataset = '{dataset_id}' AND table_name = '{current_table}'
+            WHERE dataset = @dataset_id AND table_name = @table_name
             """
-            existing_tables_df = bq_client.query(q_existing_table).to_dataframe()
+            job_config = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("dataset_id", "STRING", dataset_id),
+                    bigquery.ScalarQueryParameter("table_name", "STRING", current_table)
+                ]
+            )
+            existing_tables_df = bq_client.query(q_existing_table, job_config=job_config).to_dataframe()
             has_meta_table_desc = not existing_tables_df.empty
             if has_meta_table_desc:
                 print("✓ Table description exists in meta")
-        except:
+        except Exception as e:
+            logger.warning(f"Failed to fetch existing table description: {e}", exc_info=True)
             existing_tables_df = pd.DataFrame()
             has_meta_table_desc = False
             print("✗ Table description does not exist in meta")
@@ -401,13 +523,19 @@ def main():
         if need_restore_bq_from_meta or need_fill_meta_from_bq:
             if need_restore_bq_from_meta:
                 print("↺ Restoring BQ schema descriptions from meta...")
-                # подтянем все описания колонок из мета
+                # подтянем все описания колонок из мета - параметризованный запрос
                 q_all = f"""
                 SELECT column_name, generated_description
                 FROM `{PROJECT_ID}.{METADATA_DATASET_ID}.column_descriptions`
-                WHERE dataset = '{dataset_id}' AND table_name = '{current_table}'
+                WHERE dataset = @dataset_id AND table_name = @table_name
                 """
-                meta_col_desc = bq_client.query(q_all).to_dataframe().set_index("column_name")["generated_description"].to_dict()
+                job_config = bigquery.QueryJobConfig(
+                    query_parameters=[
+                        bigquery.ScalarQueryParameter("dataset_id", "STRING", dataset_id),
+                        bigquery.ScalarQueryParameter("table_name", "STRING", current_table)
+                    ]
+                )
+                meta_col_desc = bq_client.query(q_all, job_config=job_config).to_dataframe().set_index("column_name")["generated_description"].to_dict()
                 # обновим схему BQ
                 new_schema = []
                 for f in table_ref.schema:
@@ -427,28 +555,31 @@ def main():
                 # таблица
                 if (not has_meta_table_desc) and has_bq_table_desc:
                     tmp_tbl = f"{PROJECT_ID}.{METADATA_DATASET_ID}._tmp_table_desc_{int(time.time()*1000)}"
-                    job = bq_client.load_table_from_dataframe(
-                        pd.DataFrame([{
-                            'dataset': dataset_id,
-                            'table_name': current_table,
-                            'table_description': bq_table_desc,
-                            'job_insert_ts': datetime.now()
-                        }]),
-                        tmp_tbl,
-                        job_config=bigquery.LoadJobConfig(write_disposition="WRITE_TRUNCATE")
-                    ); job.result()
-                    merge_sql = f"""
-                    MERGE `{PROJECT_ID}.{METADATA_DATASET_ID}.table_descriptions` T
-                    USING `{tmp_tbl}` S
-                    ON  T.dataset = S.dataset AND T.table_name = S.table_name
-                    WHEN MATCHED AND IFNULL(T.table_description,'') != IFNULL(S.table_description,'') THEN
-                      UPDATE SET T.table_description = S.table_description, T.job_insert_ts = CURRENT_TIMESTAMP()
-                    WHEN NOT MATCHED THEN
-                      INSERT (dataset, table_name, table_description, job_insert_ts)
-                      VALUES (S.dataset, S.table_name, S.table_description, CURRENT_TIMESTAMP());
-                    """
-                    bq_client.query(merge_sql).result()
-                    bq_client.delete_table(tmp_tbl, not_found_ok=True)
+                    try:
+                        job = bq_client.load_table_from_dataframe(
+                            pd.DataFrame([{
+                                'dataset': dataset_id,
+                                'table_name': current_table,
+                                'table_description': bq_table_desc,
+                                'job_insert_ts': datetime.now()
+                            }]),
+                            tmp_tbl,
+                            job_config=bigquery.LoadJobConfig(write_disposition="WRITE_TRUNCATE")
+                        )
+                        job.result()
+                        merge_sql = f"""
+                        MERGE `{PROJECT_ID}.{METADATA_DATASET_ID}.table_descriptions` T
+                        USING `{tmp_tbl}` S
+                        ON  T.dataset = S.dataset AND T.table_name = S.table_name
+                        WHEN MATCHED AND IFNULL(T.table_description,'') != IFNULL(S.table_description,'') THEN
+                          UPDATE SET T.table_description = S.table_description, T.job_insert_ts = CURRENT_TIMESTAMP()
+                        WHEN NOT MATCHED THEN
+                          INSERT (dataset, table_name, table_description, job_insert_ts)
+                          VALUES (S.dataset, S.table_name, S.table_description, CURRENT_TIMESTAMP());
+                        """
+                        bq_client.query(merge_sql).result()
+                    finally:
+                        bq_client.delete_table(tmp_tbl, not_found_ok=True)
 
                 # колонки
                 missing_in_meta = [c for c in table_ref.schema
@@ -463,22 +594,25 @@ def main():
                         'job_insert_ts': datetime.now()
                     } for c in missing_in_meta])
                     tmp_cols = f"{PROJECT_ID}.{METADATA_DATASET_ID}._tmp_col_desc_{int(time.time()*1000)}"
-                    job = bq_client.load_table_from_dataframe(
-                        df_backfill, tmp_cols,
-                        job_config=bigquery.LoadJobConfig(write_disposition="WRITE_TRUNCATE")
-                    ); job.result()
-                    merge_cols_sql = f"""
-                    MERGE `{PROJECT_ID}.{METADATA_DATASET_ID}.column_descriptions` T
-                    USING `{tmp_cols}` S
-                    ON  T.dataset=S.dataset AND T.table_name=S.table_name AND T.column_name=S.column_name
-                    WHEN MATCHED AND IFNULL(T.generated_description,'') != IFNULL(S.generated_description,'') THEN
-                      UPDATE SET T.generated_description = S.generated_description, T.job_insert_ts = CURRENT_TIMESTAMP()
-                    WHEN NOT MATCHED THEN
-                      INSERT (dataset, table_name, column_name, data_type, generated_description, job_insert_ts)
-                      VALUES (S.dataset, S.table_name, S.column_name, S.data_type, S.generated_description, CURRENT_TIMESTAMP());
-                    """
-                    bq_client.query(merge_cols_sql).result()
-                    bq_client.delete_table(tmp_cols, not_found_ok=True)
+                    try:
+                        job = bq_client.load_table_from_dataframe(
+                            df_backfill, tmp_cols,
+                            job_config=bigquery.LoadJobConfig(write_disposition="WRITE_TRUNCATE")
+                        )
+                        job.result()
+                        merge_cols_sql = f"""
+                        MERGE `{PROJECT_ID}.{METADATA_DATASET_ID}.column_descriptions` T
+                        USING `{tmp_cols}` S
+                        ON  T.dataset=S.dataset AND T.table_name=S.table_name AND T.column_name=S.column_name
+                        WHEN MATCHED AND IFNULL(T.generated_description,'') != IFNULL(S.generated_description,'') THEN
+                          UPDATE SET T.generated_description = S.generated_description, T.job_insert_ts = CURRENT_TIMESTAMP()
+                        WHEN NOT MATCHED THEN
+                          INSERT (dataset, table_name, column_name, data_type, generated_description, job_insert_ts)
+                          VALUES (S.dataset, S.table_name, S.column_name, S.data_type, S.generated_description, CURRENT_TIMESTAMP());
+                        """
+                        bq_client.query(merge_cols_sql).result()
+                    finally:
+                        bq_client.delete_table(tmp_cols, not_found_ok=True)
                     print(f"✓ Meta backfilled with {len(df_backfill)} column descriptions")
 
             # После синхронизации обновим статусы
@@ -492,16 +626,22 @@ def main():
             q_existing_cols = f"""
             SELECT dataset, table_name, column_name, generated_description
             FROM `{PROJECT_ID}.{METADATA_DATASET_ID}.column_descriptions`
-            WHERE dataset = '{dataset_id}' AND table_name = '{current_table}'
+            WHERE dataset = @dataset_id AND table_name = @table_name
             """
-            existing_columns_df = bq_client.query(q_existing_cols).to_dataframe()
+            job_config = bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("dataset_id", "STRING", dataset_id),
+                    bigquery.ScalarQueryParameter("table_name", "STRING", current_table)
+                ]
+            )
+            existing_columns_df = bq_client.query(q_existing_cols, job_config=job_config).to_dataframe()
 
             q_existing_table = f"""
             SELECT dataset, table_name, table_description
             FROM `{PROJECT_ID}.{METADATA_DATASET_ID}.table_descriptions`
-            WHERE dataset = '{dataset_id}' AND table_name = '{current_table}'
+            WHERE dataset = @dataset_id AND table_name = @table_name
             """
-            existing_tables_df = bq_client.query(q_existing_table).to_dataframe()
+            existing_tables_df = bq_client.query(q_existing_table, job_config=job_config).to_dataframe()
             has_meta_table_desc = not existing_tables_df.empty
 
             fully_described_in_meta = has_meta_table_desc and (len(existing_columns_df) == len(df_cols))
@@ -586,61 +726,65 @@ def main():
             print(f"\nSaving {len(column_results)} column descriptions (MERGE)...", end=' ', flush=True)
             columns_df = pd.DataFrame(column_results)
             tmp_cols = f"{PROJECT_ID}.{METADATA_DATASET_ID}._tmp_col_desc_{int(time.time()*1000)}"
-            job = bq_client.load_table_from_dataframe(
-                columns_df,
-                tmp_cols,
-                job_config=bigquery.LoadJobConfig(write_disposition="WRITE_TRUNCATE")
-            )
-            job.result()
+            try:
+                job = bq_client.load_table_from_dataframe(
+                    columns_df,
+                    tmp_cols,
+                    job_config=bigquery.LoadJobConfig(write_disposition="WRITE_TRUNCATE")
+                )
+                job.result()
 
-            merge_cols_sql = f"""
-            MERGE `{PROJECT_ID}.{METADATA_DATASET_ID}.column_descriptions` T
-            USING `{tmp_cols}` S
-            ON  T.dataset     = S.dataset
-            AND T.table_name  = S.table_name
-            AND T.column_name = S.column_name
-            WHEN MATCHED AND IFNULL(T.generated_description,'') != IFNULL(S.generated_description,'') THEN
-              UPDATE SET
-                T.generated_description = S.generated_description,
-                T.job_insert_ts         = CURRENT_TIMESTAMP()
-            WHEN NOT MATCHED THEN
-              INSERT (dataset, table_name, column_name, data_type, generated_description, job_insert_ts)
-              VALUES (S.dataset, S.table_name, S.column_name, S.data_type, S.generated_description, CURRENT_TIMESTAMP());
-            """
-            bq_client.query(merge_cols_sql).result()
-            bq_client.delete_table(tmp_cols, not_found_ok=True)
+                merge_cols_sql = f"""
+                MERGE `{PROJECT_ID}.{METADATA_DATASET_ID}.column_descriptions` T
+                USING `{tmp_cols}` S
+                ON  T.dataset     = S.dataset
+                AND T.table_name  = S.table_name
+                AND T.column_name = S.column_name
+                WHEN MATCHED AND IFNULL(T.generated_description,'') != IFNULL(S.generated_description,'') THEN
+                  UPDATE SET
+                    T.generated_description = S.generated_description,
+                    T.job_insert_ts         = CURRENT_TIMESTAMP()
+                WHEN NOT MATCHED THEN
+                  INSERT (dataset, table_name, column_name, data_type, generated_description, job_insert_ts)
+                  VALUES (S.dataset, S.table_name, S.column_name, S.data_type, S.generated_description, CURRENT_TIMESTAMP());
+                """
+                bq_client.query(merge_cols_sql).result()
+            finally:
+                bq_client.delete_table(tmp_cols, not_found_ok=True)
             print("✓")
 
         # ---- MERGE table_descriptions (UPDATE только при изменении текста)
         print("Saving table description (MERGE)...", end=' ', flush=True)
         tmp_tbl = f"{PROJECT_ID}.{METADATA_DATASET_ID}._tmp_table_desc_{int(time.time()*1000)}"
-        job = bq_client.load_table_from_dataframe(
-            pd.DataFrame([{
-                'dataset': dataset_id,
-                'table_name': current_table,
-                'table_description': table_desc,
-                'job_insert_ts': datetime.now()
-            }]),
-            tmp_tbl,
-            job_config=bigquery.LoadJobConfig(write_disposition="WRITE_TRUNCATE")
-        )
-        job.result()
+        try:
+            job = bq_client.load_table_from_dataframe(
+                pd.DataFrame([{
+                    'dataset': dataset_id,
+                    'table_name': current_table,
+                    'table_description': table_desc,
+                    'job_insert_ts': datetime.now()
+                }]),
+                tmp_tbl,
+                job_config=bigquery.LoadJobConfig(write_disposition="WRITE_TRUNCATE")
+            )
+            job.result()
 
-        merge_sql = f"""
-        MERGE `{PROJECT_ID}.{METADATA_DATASET_ID}.table_descriptions` T
-        USING `{tmp_tbl}` S
-        ON  T.dataset = S.dataset
-        AND T.table_name = S.table_name
-        WHEN MATCHED AND IFNULL(T.table_description,'') != IFNULL(S.table_description,'') THEN
-          UPDATE SET
-            T.table_description = S.table_description,
-            T.job_insert_ts     = CURRENT_TIMESTAMP()
-        WHEN NOT MATCHED THEN
-          INSERT (dataset, table_name, table_description, job_insert_ts)
-          VALUES (S.dataset, S.table_name, S.table_description, CURRENT_TIMESTAMP());
-        """
-        bq_client.query(merge_sql).result()
-        bq_client.delete_table(tmp_tbl, not_found_ok=True)
+            merge_sql = f"""
+            MERGE `{PROJECT_ID}.{METADATA_DATASET_ID}.table_descriptions` T
+            USING `{tmp_tbl}` S
+            ON  T.dataset = S.dataset
+            AND T.table_name = S.table_name
+            WHEN MATCHED AND IFNULL(T.table_description,'') != IFNULL(S.table_description,'') THEN
+              UPDATE SET
+                T.table_description = S.table_description,
+                T.job_insert_ts     = CURRENT_TIMESTAMP()
+            WHEN NOT MATCHED THEN
+              INSERT (dataset, table_name, table_description, job_insert_ts)
+              VALUES (S.dataset, S.table_name, S.table_description, CURRENT_TIMESTAMP());
+            """
+            bq_client.query(merge_sql).result()
+        finally:
+            bq_client.delete_table(tmp_tbl, not_found_ok=True)
         print("✓")
         total_tables_processed += 1
 
@@ -661,9 +805,15 @@ def main():
                 q_all = f"""
                 SELECT column_name, generated_description
                 FROM `{PROJECT_ID}.{METADATA_DATASET_ID}.column_descriptions`
-                WHERE dataset = '{dataset_id}' AND table_name = '{current_table}'
+                WHERE dataset = @dataset_id AND table_name = @table_name
                 """
-                all_col_desc = bq_client.query(q_all).to_dataframe()
+                job_config = bigquery.QueryJobConfig(
+                    query_parameters=[
+                        bigquery.ScalarQueryParameter("dataset_id", "STRING", dataset_id),
+                        bigquery.ScalarQueryParameter("table_name", "STRING", current_table)
+                    ]
+                )
+                all_col_desc = bq_client.query(q_all, job_config=job_config).to_dataframe()
                 new_schema = []
                 for field in table_ref.schema:
                     rowd = all_col_desc[all_col_desc['column_name'] == field.name]
