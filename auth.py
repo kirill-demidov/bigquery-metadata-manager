@@ -29,17 +29,23 @@ GOOGLE_SCOPES = [
 
 # Initialize OAuth
 oauth = OAuth()
-if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
-    oauth.register(
-        name='google',
-        client_id=GOOGLE_CLIENT_ID,
-        client_secret=GOOGLE_CLIENT_SECRET,
-        server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
-        client_kwargs={
-            'scope': ' '.join(GOOGLE_SCOPES)
-        },
-        authorize_params={'state': None}
-    )
+# Register OAuth even if credentials are missing (will fail gracefully)
+try:
+    if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
+        oauth.register(
+            name='google',
+            client_id=GOOGLE_CLIENT_ID,
+            client_secret=GOOGLE_CLIENT_SECRET,
+            server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+            client_kwargs={
+                'scope': ' '.join(GOOGLE_SCOPES)
+            },
+            authorize_params={'state': None}
+        )
+    else:
+        logger.warning("GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET not set. OAuth will not work.")
+except Exception as e:
+    logger.error(f"Failed to register OAuth: {e}")
 
 def get_current_user(request: Request):
     """Get current authenticated user from session"""

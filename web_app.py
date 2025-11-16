@@ -156,6 +156,8 @@ def calculate_cost(model_name, prompt_tokens, completion_tokens):
 @app.get("/login")
 async def login(request: Request):
     """Initiate Google OAuth login"""
+    if not os.getenv("GOOGLE_CLIENT_ID") or not os.getenv("GOOGLE_CLIENT_SECRET"):
+        raise HTTPException(status_code=500, detail="OAuth not configured. Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET")
     redirect_uri = os.getenv("REDIRECT_URI", "http://localhost:8081/auth/callback")
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
