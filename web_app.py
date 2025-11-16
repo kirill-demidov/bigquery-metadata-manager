@@ -3,10 +3,11 @@
 Web UI for BigQuery Metadata Descriptions Management
 """
 
-from fastapi import FastAPI, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, Request, Form, HTTPException, Depends
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 from google.cloud import bigquery
 from openai import OpenAI
 import pandas as pd
@@ -14,6 +15,10 @@ from typing import Optional, List
 import os
 from datetime import datetime
 import re
+import httpx
+import logging
+
+from auth import oauth, require_auth, get_user_bigquery_client, get_current_user
 
 # Configuration
 PROJECT_ID = "guns-and-gangs"
@@ -44,6 +49,18 @@ app = FastAPI(title="BigQuery Metadata Manager")
 templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# Add session middleware for OAuth
+SECRET_KEY = os.getenv("SECRET_KEY", "change-this-secret-key-in-production")
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SECRET_KEY,
+    max_age=3600,  # 1 hour session
+    same_site="lax",
+    https_only=False
+)
+
+logger = logging.getLogger(__name__)
+
 def is_sensitive_name(name):
     """Проверка, является ли имя чувствительным"""
     if not name:
@@ -59,29 +76,19 @@ def mask_table_name(table_fqn):
 
 def get_user_email(request: Request) -> str:
     """
-    Get user email from Cloud Run IAM headers or local dev environment.
-    For local development, checks LOCAL_USER_EMAIL env var or uses default.
+    Get user email from OAuth session or fallback.
     """
-    # Cloud Run IAM headers (production)
-    user_email = request.headers.get("X-Goog-Authenticated-User-Email", "")
-    if user_email:
-        return user_email.replace("accounts.google.com:", "")
-    
-    # Local development fallback
-    local_user = os.getenv("LOCAL_USER_EMAIL", "local-dev@example.com")
-    return local_user
+    try:
+        user = get_current_user(request)
+        return user.get('email', 'unknown@example.com')
+    except HTTPException:
+        return None
 
 def get_bq_client(request: Request):
     """
-    Get BigQuery client using user's credentials.
-    In Cloud Run with IAM authentication, Application Default Credentials
-    automatically use the authenticated user's identity.
-    For local development, uses Application Default Credentials from gcloud.
+    Get BigQuery client using user's OAuth credentials.
     """
-    # Cloud Run IAM automatically handles authentication
-    # Application Default Credentials will use the authenticated user's token
-    # For local dev, ADC uses gcloud credentials
-    return bigquery.Client(project=PROJECT_ID)
+    return get_user_bigquery_client(request)
 
 def get_table_sample_data(bq_client, dataset_id, table_name, sample_percent=2, max_rows=5):
     """Get sample data from table using TABLESAMPLE SYSTEM"""
@@ -145,14 +152,75 @@ def calculate_cost(model_name, prompt_tokens, completion_tokens):
     return input_cost + output_cost
 
 
+# Authentication routes
+@app.get("/login")
+async def login(request: Request):
+    """Initiate Google OAuth login"""
+    redirect_uri = os.getenv("REDIRECT_URI", "http://localhost:8081/auth/callback")
+    return await oauth.google.authorize_redirect(request, redirect_uri)
+
+@app.get("/auth/callback")
+async def auth_callback(request: Request):
+    """Handle OAuth callback"""
+    try:
+        code = request.query_params.get('code')
+        if not code:
+            raise HTTPException(status_code=400, detail="No authorization code received")
+        
+        # Exchange code for token
+        token_url = "https://oauth2.googleapis.com/token"
+        redirect_uri = os.getenv("REDIRECT_URI", "http://localhost:8081/auth/callback")
+        token_data = {
+            'client_id': os.getenv("GOOGLE_CLIENT_ID"),
+            'client_secret': os.getenv("GOOGLE_CLIENT_SECRET"),
+            'code': code,
+            'grant_type': 'authorization_code',
+            'redirect_uri': redirect_uri
+        }
+        
+        async with httpx.AsyncClient() as client:
+            token_response = await client.post(token_url, data=token_data)
+            token_response.raise_for_status()
+            token_data = token_response.json()
+        
+        # Get user info
+        userinfo_url = "https://www.googleapis.com/oauth2/v2/userinfo"
+        headers = {'Authorization': f"Bearer {token_data['access_token']}"}
+        
+        async with httpx.AsyncClient() as client:
+            userinfo_response = await client.get(userinfo_url, headers=headers)
+            userinfo_response.raise_for_status()
+            user_info = userinfo_response.json()
+        
+        # Save to session
+        request.session['user'] = user_info
+        request.session['token'] = {
+            'access_token': token_data['access_token'],
+            'refresh_token': token_data.get('refresh_token'),
+            'expires_at': token_data.get('expires_in')
+        }
+        
+        logger.info(f"User logged in: {user_info.get('email')}")
+        return RedirectResponse(url="/", status_code=302)
+        
+    except Exception as e:
+        logger.error(f"OAuth callback error: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Authentication failed: {str(e)}")
+
+@app.get("/logout")
+async def logout(request: Request):
+    """Logout user"""
+    request.session.clear()
+    return RedirectResponse(url="/", status_code=302)
+
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
+async def index(request: Request, user: dict = Depends(require_auth)):
     """Main page - list of all tables"""
     try:
-        # Get user email (Cloud Run IAM or local dev)
-        user_email = get_user_email(request)
+        # Get user email from OAuth session
+        user_email = user.get('email') if user else None
         
-        # Get BigQuery client (uses user's credentials via Cloud Run IAM or gcloud ADC)
+        # Get BigQuery client (uses user's OAuth credentials)
         bq_client = get_bq_client(request)
         
         # Get all tables with descriptions
@@ -209,10 +277,11 @@ async def index(request: Request):
 
 
 @app.get("/table/{dataset}/{table_name}", response_class=HTMLResponse)
-async def table_detail(request: Request, dataset: str, table_name: str):
+async def table_detail(request: Request, dataset: str, table_name: str, user: dict = Depends(require_auth)):
     """Table detail page with columns"""
     try:
         bq_client = get_bq_client(request)
+        user_email = user.get('email') if user else None
         
         # Get table description
         query_table = f"""
@@ -272,7 +341,8 @@ async def update_table_description(
     request: Request,
     dataset: str,
     table_name: str,
-    description: str = Form(...)
+    description: str = Form(...),
+    user: dict = Depends(require_auth)
 ):
     """Update table description"""
     try:
@@ -331,7 +401,8 @@ async def update_column_description(
     dataset: str,
     table_name: str,
     column_name: str,
-    description: str = Form(...)
+    description: str = Form(...),
+    user: dict = Depends(require_auth)
 ):
     """Update column description"""
     try:
@@ -434,7 +505,7 @@ async def update_column_description(
 
 
 @app.post("/api/table/{dataset}/{table_name}/generate-description")
-async def generate_table_description(request: Request, dataset: str, table_name: str):
+async def generate_table_description(request: Request, dataset: str, table_name: str, user: dict = Depends(require_auth)):
     """Generate table description using OpenAI with sample data"""
     if not openai_client:
         raise HTTPException(status_code=500, detail="OpenAI API key not configured")
@@ -557,7 +628,8 @@ async def generate_column_description(
     request: Request,
     dataset: str,
     table_name: str,
-    column_name: str
+    column_name: str,
+    user: dict = Depends(require_auth)
 ):
     """Generate column description using OpenAI with sample values"""
     if not openai_client:

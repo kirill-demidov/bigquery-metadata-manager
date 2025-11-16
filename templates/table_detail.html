@@ -14,8 +14,9 @@
             <p class="subtitle">
                 {% if user_email %}
                     👤 Logged in as: <strong>{{ user_email }}</strong>
+                    <a href="/logout" style="margin-left: 15px; color: #ea4335; text-decoration: none;">(Logout)</a>
                 {% else %}
-                    ⚠️ Not authenticated (local dev mode)
+                    <a href="/login" class="btn btn-primary" style="padding: 6px 12px; font-size: 14px;">🔐 Login with Google</a>
                 {% endif %}
             </p>
         </header>

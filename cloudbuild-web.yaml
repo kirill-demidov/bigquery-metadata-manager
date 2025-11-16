@@ -39,11 +39,12 @@ steps:
       - '--image=gcr.io/$PROJECT_ID/tables-and-columns-description-web:$SHORT_SHA'
       - '--region=europe-west1'
       - '--platform=managed'
-      - '--no-allow-unauthenticated'
+      - '--allow-unauthenticated'
       - '--memory=512Mi'
       - '--cpu=1'
       - '--port=8081'
       - '--set-secrets=OPENAI_API_KEY=analytics_table_desc_ai_creator:latest'
+      - '--set-env-vars=GOOGLE_CLIENT_ID=19297483087-gvbvq7qfidl8ppr2orciemff6l1nfrm5.apps.googleusercontent.com,GOOGLE_CLIENT_SECRET=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,REDIRECT_URI=https://tables-and-columns-description-web-gccuajx7eq-ew.a.run.app/auth/callback,SECRET_KEY=qxkHSR61_ugaJu1PfAwzVsuNUA_XiAn1cHXzdwEIkuA'
       - '--project=$PROJECT_ID'
     waitFor: ['push-tagged']
 
