@@ -1,0 +1,256 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: #f5f5f5;
+    color: #333;
+    line-height: 1.6;
+}
+
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+header {
+    background: white;
+    padding: 30px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+header h1 {
+    color: #1a73e8;
+    margin-bottom: 5px;
+}
+
+.subtitle {
+    color: #666;
+    font-size: 14px;
+}
+
+.back-link {
+    display: inline-block;
+    margin-bottom: 15px;
+    color: #1a73e8;
+    text-decoration: none;
+    font-size: 14px;
+}
+
+.back-link:hover {
+    text-decoration: underline;
+}
+
+.search-box {
+    margin-bottom: 20px;
+}
+
+.search-box input {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.stats {
+    background: white;
+    padding: 15px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+    font-weight: 500;
+}
+
+.section {
+    background: white;
+    padding: 30px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.section h2 {
+    color: #333;
+    margin-bottom: 20px;
+    font-size: 20px;
+}
+
+.description-editor {
+    margin-bottom: 15px;
+}
+
+.description-textarea {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    font-family: inherit;
+    resize: vertical;
+    margin-bottom: 10px;
+}
+
+.description-textarea:focus {
+    outline: none;
+    border-color: #1a73e8;
+}
+
+.meta-info {
+    color: #666;
+    font-size: 12px;
+    margin-top: 10px;
+}
+
+.tables-table, .columns-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+}
+
+.tables-table thead, .columns-table thead {
+    background: #f8f9fa;
+}
+
+.tables-table th, .columns-table th {
+    padding: 12px;
+    text-align: left;
+    font-weight: 600;
+    color: #333;
+    border-bottom: 2px solid #ddd;
+}
+
+.tables-table td, .columns-table td {
+    padding: 12px;
+    border-bottom: 1px solid #eee;
+}
+
+.tables-table tr:hover, .columns-table tr:hover {
+    background: #f8f9fa;
+}
+
+.dataset {
+    color: #666;
+    font-size: 13px;
+}
+
+.table-name {
+    font-weight: 600;
+    color: #1a73e8;
+}
+
+.description {
+    max-width: 400px;
+}
+
+.no-desc {
+    color: #999;
+    font-style: italic;
+}
+
+.column-name {
+    font-weight: 600;
+    min-width: 150px;
+}
+
+.data-type code {
+    background: #f0f0f0;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+    color: #d63384;
+}
+
+.column-description {
+    width: 60%;
+}
+
+.column-desc-textarea {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 13px;
+    font-family: inherit;
+    resize: vertical;
+}
+
+.column-desc-textarea:focus {
+    outline: none;
+    border-color: #1a73e8;
+}
+
+.actions {
+    white-space: nowrap;
+}
+
+.btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    text-decoration: none;
+    display: inline-block;
+    transition: background 0.2s;
+}
+
+.btn-primary {
+    background: #1a73e8;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #1557b0;
+}
+
+.btn-small {
+    padding: 6px 12px;
+    font-size: 12px;
+}
+
+.save-status {
+    margin-left: 10px;
+    font-size: 12px;
+    color: #34a853;
+}
+
+.save-status.error {
+    color: #ea4335;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 40px;
+    color: #999;
+}
+
+.updated {
+    font-size: 12px;
+    color: #666;
+}
+
+.column-count {
+    text-align: center;
+}
+
+@media (max-width: 768px) {
+    .container {
+        padding: 10px;
+    }
+    
+    .tables-table, .columns-table {
+        font-size: 12px;
+    }
+    
+    .tables-table th, .tables-table td,
+    .columns-table th, .columns-table td {
+        padding: 8px 4px;
+    }
+}
+

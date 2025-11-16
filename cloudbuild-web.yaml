@@ -1,0 +1,52 @@
+steps:
+  # Сборка Docker образа для Web UI
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - 'Dockerfile.web'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/tables-and-columns-description-web:$SHORT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/tables-and-columns-description-web:latest'
+      - '.'
+
+  # Отправка образа в Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/tables-and-columns-description-web:$SHORT_SHA'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/tables-and-columns-description-web:latest'
+
+  # Развертывание Cloud Run Service (Web UI)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'tables-and-columns-description-web'
+      - '--image=gcr.io/$PROJECT_ID/tables-and-columns-description-web:$SHORT_SHA'
+      - '--region=europe-west1'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--memory=512Mi'
+      - '--cpu=1'
+      - '--port=8081'
+      - '--set-secrets=OPENAI_API_KEY=analytics_table_desc_ai_creator:latest'
+      - '--project=$PROJECT_ID'
+    waitFor: ['-']
+
+images:
+  - 'gcr.io/$PROJECT_ID/tables-and-columns-description-web:$SHORT_SHA'
+  - 'gcr.io/$PROJECT_ID/tables-and-columns-description-web:latest'
+
+options:
+  machineType: 'E2_HIGHCPU_8'
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: '1200s'
+

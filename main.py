@@ -136,6 +136,14 @@ MAX_RETRIES = 3
 BATCH_SIZE = 5
 UPDATE_BIGQUERY_METADATA = True
 
+# OpenAI pricing per 1M tokens (as of 2024)
+OPENAI_PRICING = {
+    "gpt-4o-mini": {"input": 0.15, "output": 0.60},
+    "gpt-4o": {"input": 2.50, "output": 10.00},
+    "gpt-4": {"input": 30.00, "output": 60.00},
+    "gpt-3.5-turbo": {"input": 0.50, "output": 1.50},
+}
+
 # ============================================================================
 # INITIALIZATION
 # ============================================================================
@@ -145,9 +153,21 @@ bq_client = bigquery.Client(project=PROJECT_ID)
 api_lock = Lock()
 last_request_time = [0]
 
+# Cost tracking
+total_cost = [0.0]  # Total cost in USD
+
 # ============================================================================
 # HELPERS
 # ============================================================================
+
+def calculate_cost(model_name, prompt_tokens, completion_tokens):
+    """Calculate cost based on tokens used"""
+    if model_name not in OPENAI_PRICING:
+        return 0.0
+    pricing = OPENAI_PRICING[model_name]
+    input_cost = (prompt_tokens / 1_000_000) * pricing["input"]
+    output_cost = (completion_tokens / 1_000_000) * pricing["output"]
+    return input_cost + output_cost
 
 def rate_limited_api_call(func, *args, **kwargs):
     with api_lock:
@@ -167,16 +187,117 @@ def get_table_type(project_id, dataset_id, table_name):
         print(f"\n  ⚠ Error getting table type: {e}")
         return "UNKNOWN"
 
-def generate_column_description_ai(column_name, data_type, table_fqn, max_retries=MAX_RETRIES):
+def get_table_sample_data(project_id, dataset_id, table_name, sample_percent=2, max_rows=10):
+    """
+    Get sample data from table using TABLESAMPLE SYSTEM.
+    Returns sample rows as a list of dictionaries or None if failed.
+    """
+    try:
+        # Check if table is a view or materialized view (TABLESAMPLE doesn't work on views)
+        table_ref = bq_client.get_table(f"{project_id}.{dataset_id}.{table_name}")
+        if table_ref.table_type in ["VIEW", "MATERIALIZED_VIEW"]:
+            # For views, use LIMIT instead
+            query = f"""
+            SELECT *
+            FROM `{project_id}.{dataset_id}.{table_name}`
+            LIMIT {max_rows}
+            """
+        else:
+            # For regular tables, use TABLESAMPLE
+            query = f"""
+            SELECT *
+            FROM `{project_id}.{dataset_id}.{table_name}`
+            TABLESAMPLE SYSTEM ({sample_percent} PERCENT)
+            LIMIT {max_rows}
+            """
+        
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[],
+            use_legacy_sql=False
+        )
+        
+        df = bq_client.query(query, job_config=job_config).to_dataframe()
+        
+        if df.empty:
+            return None
+        
+        # Convert to list of dictionaries, limit values to avoid huge prompts
+        sample_data = []
+        for _, row in df.head(max_rows).iterrows():
+            row_dict = {}
+            for col in df.columns:
+                value = row[col]
+                # Truncate long strings and handle None
+                if value is None:
+                    row_dict[col] = None
+                elif isinstance(value, str) and len(value) > 100:
+                    row_dict[col] = value[:100] + "..."
+                else:
+                    row_dict[col] = value
+            sample_data.append(row_dict)
+        
+        return sample_data
+    except Exception as e:
+        logger.debug(f"Could not get sample data for {dataset_id}.{table_name}: {e}")
+        return None
+
+def format_sample_data_for_prompt(sample_data, max_examples=3):
+    """Format sample data for inclusion in AI prompt"""
+    if not sample_data or len(sample_data) == 0:
+        return None
+    
+    # Limit number of examples
+    examples = sample_data[:max_examples]
+    
+    formatted = []
+    for i, row in enumerate(examples, 1):
+        row_str = ", ".join([f"{k}={v}" for k, v in row.items() if v is not None])
+        formatted.append(f"Example {i}: {row_str}")
+    
+    return "\n".join(formatted)
+
+def generate_column_description_ai(column_name, data_type, table_fqn, dataset_id=None, table_name=None, max_retries=MAX_RETRIES):
     # Маскирование чувствительных данных перед отправкой в OpenAI
     safe_table_fqn = mask_table_name(table_fqn)
     safe_column_name = "column" if is_sensitive_name(column_name) else column_name
+    
+    # Get sample values for this column if dataset_id and table_name provided
+    sample_values_text = ""
+    if dataset_id and table_name and not is_sensitive_name(column_name):
+        try:
+            # Get sample values for this specific column
+            table_ref = bq_client.get_table(f"{PROJECT_ID}.{dataset_id}.{table_name}")
+            if table_ref.table_type not in ["VIEW", "MATERIALIZED_VIEW"]:
+                query = f"""
+                SELECT DISTINCT `{column_name}`
+                FROM `{PROJECT_ID}.{dataset_id}.{table_name}`
+                TABLESAMPLE SYSTEM (2 PERCENT)
+                WHERE `{column_name}` IS NOT NULL
+                LIMIT 5
+                """
+            else:
+                query = f"""
+                SELECT DISTINCT `{column_name}`
+                FROM `{PROJECT_ID}.{dataset_id}.{table_name}`
+                WHERE `{column_name}` IS NOT NULL
+                LIMIT 5
+                """
+            
+            job_config = bigquery.QueryJobConfig(use_legacy_sql=False)
+            df_values = bq_client.query(query, job_config=job_config).to_dataframe()
+            
+            if not df_values.empty:
+                values = [str(v)[:50] for v in df_values[column_name].head(5).tolist() if v is not None]
+                if values:
+                    sample_values_text = f"\nSample values: {', '.join(values)}"
+        except Exception as e:
+            logger.debug(f"Could not get sample values for {column_name}: {e}")
     
     prompt = f"""You are a data analyst. Write a detailed, professional description (1-2 sentences) for this database column.
 
 Table: {safe_table_fqn}
 Column: {safe_column_name}
-Data Type: {data_type}
+Data Type: {data_type}{sample_values_text}
 
 The description should:
 - Explain what data this column stores
@@ -195,12 +316,20 @@ Write ONLY the description, no preamble or extra text."""
                     temperature=OPENAI_TEMPERATURE,
                     max_tokens=OPENAI_MAX_TOKENS
                 )
-                return resp.choices[0].message.content
-            description = rate_limited_api_call(make_openai_call)
+                return resp
+            resp = rate_limited_api_call(make_openai_call)
+            description = resp.choices[0].message.content
+            
+            # Calculate cost
+            prompt_tokens = resp.usage.prompt_tokens
+            completion_tokens = resp.usage.completion_tokens
+            cost = calculate_cost(MODEL_NAME, prompt_tokens, completion_tokens)
+            total_cost[0] += cost
+            
             elapsed = time.time() - start_time
             if description and len(description.strip()) > 20:
-                print(f" ({elapsed:.1f}s)", end='', flush=True)
-                return description.strip()
+                print(f" ({elapsed:.1f}s, ${cost:.4f})", end='', flush=True)
+                return description.strip(), cost
         except Exception as e:
             error_str = str(e).lower()
             if attempt < max_retries - 1:
@@ -217,8 +346,8 @@ Write ONLY the description, no preamble or extra text."""
                     time.sleep(2 * (attempt + 1))
             else:
                 print(f"\n    ✗ Failed after {max_retries} attempts: {e}")
-                return f"Column storing {column_name.replace('_', ' ')} ({data_type})"
-    return f"Data field for {column_name.replace('_', ' ')}"
+                return f"Column storing {column_name.replace('_', ' ')} ({data_type})", 0.0
+    return f"Data field for {column_name.replace('_', ' ')}", 0.0
 
 def generate_batch_column_descriptions(columns_batch, table_fqn, max_retries=MAX_RETRIES):
     # Маскирование чувствительных данных перед отправкой в OpenAI
@@ -262,8 +391,16 @@ Write ONLY valid JSON."""
                     max_tokens=800,
                     response_format={"type": "json_object"}
                 )
-                return resp.choices[0].message.content
-            result_text = rate_limited_api_call(make_openai_call)
+                return resp
+            resp = rate_limited_api_call(make_openai_call)
+            result_text = resp.choices[0].message.content
+            
+            # Calculate cost
+            prompt_tokens = resp.usage.prompt_tokens
+            completion_tokens = resp.usage.completion_tokens
+            cost = calculate_cost(MODEL_NAME, prompt_tokens, completion_tokens)
+            total_cost[0] += cost
+            
             elapsed = time.time() - start_time
             result_json = json.loads(result_text)
             if isinstance(result_json, dict) and 'columns' in result_json:
@@ -273,8 +410,8 @@ Write ONLY valid JSON."""
             else:
                 raise ValueError("Unexpected JSON format")
             descriptions_dict = {item['column']: item['description'] for item in descriptions_json}
-            print(f"✓ ({elapsed:.1f}s, {len(descriptions_dict)} descriptions)", flush=True)
-            return descriptions_dict
+            print(f"✓ ({elapsed:.1f}s, {len(descriptions_dict)} descriptions, ${cost:.4f})", flush=True)
+            return descriptions_dict, cost
         except Exception as e:
             error_str = str(e).lower()
             if attempt < max_retries - 1:
@@ -290,9 +427,9 @@ Write ONLY valid JSON."""
                     print(f"\n    ⚠ Batch error: {e}, retry {attempt+1}/{max_retries}...")
                     time.sleep(2 * (attempt + 1))
     print(f"⚠ failed, fallback to individual", flush=True)
-    return None
+    return None, 0.0
 
-def generate_table_description_ai(table_fqn, columns_df, max_retries=MAX_RETRIES):
+def generate_table_description_ai(table_fqn, columns_df, dataset_id=None, table_name=None, max_retries=MAX_RETRIES):
     # Маскирование чувствительных данных перед отправкой в OpenAI
     safe_table_fqn = mask_table_name(table_fqn)
     sample_columns = columns_df.head(20)
@@ -301,11 +438,21 @@ def generate_table_description_ai(table_fqn, columns_df, max_retries=MAX_RETRIES
         for _, row in sample_columns.iterrows()
     ]
     columns_list = ", ".join(columns_with_types)
+    
+    # Get sample data if dataset_id and table_name provided
+    sample_data_text = ""
+    if dataset_id and table_name:
+        sample_data = get_table_sample_data(PROJECT_ID, dataset_id, table_name, sample_percent=2, max_rows=5)
+        if sample_data:
+            formatted_samples = format_sample_data_for_prompt(sample_data, max_examples=3)
+            if formatted_samples:
+                sample_data_text = f"\n\nSample data (first 3 rows):\n{formatted_samples}"
+    
     prompt = f"""You are a data analyst. Analyze this BigQuery table and write a comprehensive description (3-4 sentences).
 
 Table: {safe_table_fqn}
 Total columns: {len(columns_df)}
-Sample columns: {columns_list}
+Sample columns: {columns_list}{sample_data_text}
 
 The description should explain:
 1. What business data or events this table stores
@@ -324,12 +471,20 @@ Write a professional, detailed description. Write ONLY the description, no pream
                     temperature=0.6,
                     max_tokens=300
                 )
-                return resp.choices[0].message.content
-            description = rate_limited_api_call(make_openai_call)
+                return resp
+            resp = rate_limited_api_call(make_openai_call)
+            description = resp.choices[0].message.content
+            
+            # Calculate cost
+            prompt_tokens = resp.usage.prompt_tokens
+            completion_tokens = resp.usage.completion_tokens
+            cost = calculate_cost(MODEL_NAME, prompt_tokens, completion_tokens)
+            total_cost[0] += cost
+            
             elapsed = time.time() - start_time
             if description and len(description.strip()) > 50:
-                print(f"✓ ({elapsed:.1f}s)", flush=True)
-                return description.strip()
+                print(f"✓ ({elapsed:.1f}s, ${cost:.4f})", flush=True)
+                return description.strip(), cost
         except Exception as e:
             error_str = str(e).lower()
             if attempt < max_retries - 1:
@@ -345,7 +500,7 @@ Write a professional, detailed description. Write ONLY the description, no pream
                     print(f"\n  ⚠ Error: {e}, retry {attempt+1}/{max_retries}...")
                     time.sleep(2 * (attempt + 1))
     print(f"✗ Failed, using fallback", flush=True)
-    return f"Table storing {table_fqn} data with {len(columns_df)} columns"
+    return f"Table storing {table_fqn} data with {len(columns_df)} columns", 0.0
 
 # ============================================================================
 # MAIN
@@ -659,7 +814,7 @@ def main():
 
         if need_ai_table_desc:
             print("\nGenerating table description (AI)...", end=' ', flush=True)
-            table_desc = generate_table_description_ai(table_fqn, df_cols)
+            table_desc, table_cost = generate_table_description_ai(table_fqn, df_cols, dataset_id, current_table)
             print(f"\nDescription: {table_desc[:150]}...")
         elif has_meta_table_desc:
             table_desc = existing_tables_df.iloc[0]['table_description']
@@ -688,14 +843,14 @@ def main():
                 print(f"\n  [{bnum}/{total_batches}] Batch ({len(batch)} columns): ", end='', flush=True)
 
                 batch_input = [{'column_name': r['column_name'], 'data_type': r['data_type']} for r in batch]
-                batch_desc = generate_batch_column_descriptions(batch_input, table_fqn)
+                batch_desc, batch_cost = generate_batch_column_descriptions(batch_input, table_fqn)
 
                 if batch_desc:
                     for r in batch:
                         desc = batch_desc.get(r['column_name'])
                         if not desc:
                             print(f"\n    → {r['column_name']}...", end='', flush=True)
-                            desc = generate_column_description_ai(r['column_name'], r['data_type'], table_fqn)
+                            desc, col_cost = generate_column_description_ai(r['column_name'], r['data_type'], table_fqn, dataset_id, current_table)
                             print(" ✓", flush=True)
                         column_results.append({
                             'dataset': dataset_id,
@@ -709,7 +864,7 @@ def main():
                 else:
                     for r in batch:
                         print(f"\n    → {r['column_name']}...", end='', flush=True)
-                        desc = generate_column_description_ai(r['column_name'], r['data_type'], table_fqn)
+                        desc, col_cost = generate_column_description_ai(r['column_name'], r['data_type'], table_fqn, dataset_id, current_table)
                         print(" ✓", flush=True)
                         column_results.append({
                             'dataset': dataset_id,
@@ -848,6 +1003,9 @@ def main():
     print("\nColumns:")
     print(f"  - Generated: {total_columns_generated}")
     print(f"  - Skipped (already exist): {total_columns_skipped}")
+    print("\nOpenAI API Costs:")
+    print(f"  - Total cost: ${total_cost[0]:.4f} USD")
+    print(f"  - Model used: {MODEL_NAME}")
     print("\nResults saved to:")
     print(f"  - {METADATA_DATASET_ID}.column_descriptions")
     print(f"  - {METADATA_DATASET_ID}.table_descriptions")

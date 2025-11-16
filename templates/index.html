@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BigQuery Metadata Manager</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📊 BigQuery Metadata Manager</h1>
+            <p class="subtitle">Project: {{ project_id }}</p>
+        </header>
+
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="Поиск по таблице или датасету..." onkeyup="filterTables()">
+        </div>
+
+        <div class="stats">
+            <span>Всего таблиц: {{ tables|length }}</span>
+            <span style="margin-left: 20px;">💡 Стоимость промптов отображается при генерации в консоли</span>
+        </div>
+
+        <table class="tables-table">
+            <thead>
+                <tr>
+                    <th>Датасет</th>
+                    <th>Таблица</th>
+                    <th>Описание</th>
+                    <th>Колонок</th>
+                    <th>Обновлено</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody id="tablesBody">
+                {% for table in tables %}
+                <tr>
+                    <td class="dataset">{{ table.dataset }}</td>
+                    <td class="table-name">{{ table.table_name }}</td>
+                    <td class="description">
+                        {% if table.table_description %}
+                            {{ table.table_description[:100] }}{% if table.table_description|length > 100 %}...{% endif %}
+                        {% else %}
+                            <em class="no-desc">Нет описания</em>
+                        {% endif %}
+                    </td>
+                    <td class="column-count">{{ table.column_count }}</td>
+                    <td class="updated">
+                        {% if table.job_insert_ts %}
+                            {{ table.job_insert_ts.strftime('%Y-%m-%d %H:%M') }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td class="actions">
+                        <a href="/table/{{ table.dataset }}/{{ table.table_name }}" class="btn btn-primary">Открыть</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        {% if tables|length == 0 %}
+        <div class="empty-state">
+            <p>Таблицы не найдены</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <script src="/static/js/main.js"></script>
+</body>
+</html>
+
