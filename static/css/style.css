@@ -67,6 +67,67 @@ header h1 {
     font-weight: 500;
 }
 
+.datasets-container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.dataset-section {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    overflow: hidden;
+}
+
+.dataset-header {
+    padding: 15px 20px;
+    background: #f8f9fa;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid #e0e0e0;
+    transition: background 0.2s;
+    user-select: none;
+}
+
+.dataset-header:hover {
+    background: #e9ecef;
+}
+
+.dataset-icon {
+    font-size: 18px;
+}
+
+.dataset-name {
+    font-weight: 600;
+    font-size: 16px;
+    color: #1a73e8;
+    flex: 1;
+}
+
+.dataset-count {
+    color: #666;
+    font-size: 14px;
+}
+
+.toggle-icon {
+    color: #666;
+    font-size: 12px;
+    transition: transform 0.2s;
+}
+
+.dataset-content {
+    padding: 0;
+}
+
+.dataset-content .tables-table {
+    margin: 0;
+    border-radius: 0;
+    box-shadow: none;
+}
+
 .section {
     background: white;
     padding: 30px;
@@ -151,6 +212,17 @@ header h1 {
 .no-desc {
     color: #999;
     font-style: italic;
+}
+
+.no-desc-badge {
+    display: inline-block;
+    background-color: #fff3cd;
+    color: #856404;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    border: 1px solid #ffc107;
 }
 
 .column-name {
@@ -239,6 +311,87 @@ header h1 {
     text-align: center;
 }
 
+/* Modal styles */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.5);
+}
+
+.modal-content {
+    background-color: #fefefe;
+    margin: 5% auto;
+    padding: 30px;
+    border: 1px solid #888;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 700px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.modal-content h2 {
+    margin-top: 0;
+    color: #1a73e8;
+}
+
+.close {
+    color: #aaa;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    line-height: 20px;
+}
+
+.close:hover,
+.close:focus {
+    color: #000;
+}
+
+.info-section {
+    margin: 20px 0;
+}
+
+.info-section h3 {
+    color: #333;
+    margin-bottom: 15px;
+    font-size: 18px;
+}
+
+.info-section ol {
+    margin-left: 20px;
+    padding-left: 0;
+}
+
+.info-section ul {
+    list-style-type: disc;
+}
+
+.info-section code {
+    background: #f0f0f0;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+    color: #d63384;
+}
+
+.modal-actions {
+    margin-top: 30px;
+    text-align: right;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+}
+
+.modal-actions .btn {
+    margin-left: 10px;
+}
+
 @media (max-width: 768px) {
     .container {
         padding: 10px;
@@ -251,6 +404,12 @@ header h1 {
     .tables-table th, .tables-table td,
     .columns-table th, .columns-table td {
         padding: 8px 4px;
+    }
+    
+    .modal-content {
+        width: 95%;
+        padding: 20px;
+        margin: 10% auto;
     }
 }
 

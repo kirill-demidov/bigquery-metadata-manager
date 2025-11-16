@@ -11,15 +11,32 @@
         <header>
             <a href="/" class="back-link">← Назад к списку</a>
             <h1>{{ table.dataset }}.{{ table.table_name }}</h1>
+            <p class="subtitle">
+                {% if user_email %}
+                    👤 Logged in as: <strong>{{ user_email }}</strong>
+                {% else %}
+                    ⚠️ Not authenticated (local dev mode)
+                {% endif %}
+            </p>
         </header>
 
         <!-- Table Description -->
         <div class="section">
-            <h2>Описание таблицы</h2>
+            <h2>Описание таблицы
+                {% if not table.table_description %}
+                    <span class="no-desc-badge" style="margin-left: 10px; font-size: 14px;">⚠️ Нет описания</span>
+                {% endif %}
+            </h2>
             <div class="description-editor">
                 <textarea id="tableDescription" rows="4" class="description-textarea">{{ table.table_description or '' }}</textarea>
-                <button onclick="saveTableDescription()" class="btn btn-primary">Сохранить описание таблицы</button>
-                <span id="tableSaveStatus" class="save-status"></span>
+                <div style="margin-top: 10px;">
+                    <button onclick="saveTableDescription()" class="btn btn-primary">Сохранить описание таблицы</button>
+                    <button onclick="showGenerateTableInfo()" class="btn btn-primary" style="background: #34a853; margin-left: 10px;">
+                        🤖 Сгенерировать через AI (с sample данными)
+                    </button>
+                    <span id="tableSaveStatus" class="save-status"></span>
+                    <span id="tableGenerateStatus" class="save-status"></span>
+                </div>
             </div>
             {% if table.job_insert_ts %}
             <p class="meta-info">Последнее обновление: {{ table.job_insert_ts.strftime('%Y-%m-%d %H:%M:%S') }}</p>
@@ -64,6 +81,14 @@
                             >
                                 Сохранить
                             </button>
+                            <button 
+                                onclick="showGenerateColumnInfo('{{ table.dataset }}', '{{ table.table_name }}', '{{ column.column_name }}')" 
+                                class="btn btn-small btn-primary"
+                                style="background: #34a853; margin-left: 5px;"
+                                title="Сгенерировать через AI с sample данными"
+                            >
+                                🤖 AI
+                            </button>
                             <span class="save-status" id="status-{{ table.dataset }}-{{ table.table_name }}-{{ column.column_name }}"></span>
                         </td>
                     </tr>
@@ -76,6 +101,21 @@
                 <p>Колонки не найдены</p>
             </div>
             {% endif %}
+        </div>
+    </div>
+
+    <!-- Modal для информации о генерации -->
+    <div id="generateInfoModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeGenerateInfoModal()">&times;</span>
+            <h2>🤖 Генерация описания через AI</h2>
+            <div id="modalInfoContent">
+                <!-- Контент будет заполнен через JavaScript -->
+            </div>
+            <div class="modal-actions">
+                <button onclick="closeGenerateInfoModal()" class="btn btn-primary" style="background: #666;">Отмена</button>
+                <button id="confirmGenerateBtn" onclick="confirmGenerate()" class="btn btn-primary" style="background: #34a853;">Продолжить генерацию</button>
+            </div>
         </div>
     </div>
 

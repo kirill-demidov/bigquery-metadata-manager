@@ -11,6 +11,13 @@
         <header>
             <h1>📊 BigQuery Metadata Manager</h1>
             <p class="subtitle">Project: {{ project_id }}</p>
+            <p class="subtitle" style="margin-top: 5px;">
+                {% if user_email %}
+                    👤 Logged in as: <strong>{{ user_email }}</strong>
+                {% else %}
+                    ⚠️ Not authenticated (local dev mode)
+                {% endif %}
+            </p>
         </header>
 
         <div class="search-box">
@@ -18,52 +25,75 @@
         </div>
 
         <div class="stats">
-            <span>Всего таблиц: {{ tables|length }}</span>
+            <span>Всего датасетов: {{ datasets|length }}</span>
             <span style="margin-left: 20px;">💡 Стоимость промптов отображается при генерации в консоли</span>
         </div>
 
-        <table class="tables-table">
-            <thead>
-                <tr>
-                    <th>Датасет</th>
-                    <th>Таблица</th>
-                    <th>Описание</th>
-                    <th>Колонок</th>
-                    <th>Обновлено</th>
-                    <th>Действия</th>
-                </tr>
-            </thead>
-            <tbody id="tablesBody">
-                {% for table in tables %}
-                <tr>
-                    <td class="dataset">{{ table.dataset }}</td>
-                    <td class="table-name">{{ table.table_name }}</td>
-                    <td class="description">
-                        {% if table.table_description %}
-                            {{ table.table_description[:100] }}{% if table.table_description|length > 100 %}...{% endif %}
-                        {% else %}
-                            <em class="no-desc">Нет описания</em>
-                        {% endif %}
-                    </td>
-                    <td class="column-count">{{ table.column_count }}</td>
-                    <td class="updated">
-                        {% if table.job_insert_ts %}
-                            {{ table.job_insert_ts.strftime('%Y-%m-%d %H:%M') }}
-                        {% else %}
-                            -
-                        {% endif %}
-                    </td>
-                    <td class="actions">
-                        <a href="/table/{{ table.dataset }}/{{ table.table_name }}" class="btn btn-primary">Открыть</a>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-
-        {% if tables|length == 0 %}
+        {% if error %}
+        <div class="error-state">
+            <p style="color: #ea4335; font-weight: bold;">❌ Ошибка при загрузке данных:</p>
+            <p style="color: #666; font-size: 14px;">{{ error }}</p>
+            <p style="color: #666; font-size: 12px; margin-top: 10px;">
+                Проверьте логи сервера для подробностей. Убедитесь, что у вас есть доступ к BigQuery.
+            </p>
+        </div>
+        {% elif datasets|length == 0 %}
         <div class="empty-state">
             <p>Таблицы не найдены</p>
+            <p style="font-size: 12px; color: #666; margin-top: 10px;">
+                Убедитесь, что метаданные были сгенерированы через main.py
+            </p>
+        </div>
+        {% else %}
+        <div class="datasets-container">
+            {% for dataset_info in datasets %}
+            <div class="dataset-section" data-dataset="{{ dataset_info.dataset }}">
+                <div class="dataset-header" onclick="toggleDataset('{{ dataset_info.dataset }}')">
+                    <span class="dataset-icon">📁</span>
+                    <span class="dataset-name">{{ dataset_info.dataset }}</span>
+                    <span class="dataset-count">({{ dataset_info.table_count }} таблиц)</span>
+                    <span class="toggle-icon" id="icon-{{ dataset_info.dataset }}">▼</span>
+                </div>
+                <div class="dataset-content" id="content-{{ dataset_info.dataset }}" style="display: none;">
+                    <table class="tables-table">
+                        <thead>
+                            <tr>
+                                <th>Таблица</th>
+                                <th>Описание</th>
+                                <th>Колонок</th>
+                                <th>Обновлено</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for table in dataset_info.tables %}
+                            <tr>
+                                <td class="table-name">{{ table.table_name }}</td>
+                                <td class="description">
+                                    {% if table.table_description %}
+                                        {{ table.table_description[:100] }}{% if table.table_description|length > 100 %}...{% endif %}
+                                    {% else %}
+                                        <span class="no-desc-badge">⚠️ Нет описания</span>
+                                    {% endif %}
+                                </td>
+                                <td class="column-count">{{ table.column_count }}</td>
+                                <td class="updated">
+                                    {% if table.job_insert_ts %}
+                                        {{ table.job_insert_ts.strftime('%Y-%m-%d %H:%M') }}
+                                    {% else %}
+                                        -
+                                    {% endif %}
+                                </td>
+                                <td class="actions">
+                                    <a href="/table/{{ table.dataset }}/{{ table.table_name }}" class="btn btn-primary">Открыть</a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {% endfor %}
         </div>
         {% endif %}
     </div>
@@ -71,4 +101,3 @@
     <script src="/static/js/main.js"></script>
 </body>
 </html>
-

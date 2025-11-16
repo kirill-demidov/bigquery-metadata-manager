@@ -92,6 +92,32 @@ gcloud builds submit --config=cloudbuild-web.yaml
 
 После деплоя веб-интерфейс будет доступен по URL, который выведет Cloud Run.
 
+**Аутентификация:** Веб-интерфейс использует встроенную Google IAM аутентификацию Cloud Run. Пользователи должны войти через свой Google аккаунт.
+
+**Настройка доступа пользователей:**
+
+```bash
+# Разрешить доступ конкретному пользователю
+gcloud run services add-iam-policy-binding tables-and-columns-description-web \
+  --region europe-west1 \
+  --member="user:user@example.com" \
+  --role="roles/run.invoker"
+
+# Разрешить доступ всем пользователям в домене
+gcloud run services add-iam-policy-binding tables-and-columns-description-web \
+  --region europe-west1 \
+  --member="domain:example.com" \
+  --role="roles/run.invoker"
+
+# Разрешить доступ группе
+gcloud run services add-iam-policy-binding tables-and-columns-description-web \
+  --region europe-west1 \
+  --member="group:team@example.com" \
+  --role="roles/run.invoker"
+```
+
+**Важно:** Пользователи должны иметь права на BigQuery в проекте `guns-and-gangs` для работы с данными.
+
 ### Развертывание генератора метаданных
 
 ### Вариант 1: Автоматический деплой через Cloud Build
