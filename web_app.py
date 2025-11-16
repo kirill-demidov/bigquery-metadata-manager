@@ -28,8 +28,21 @@ METADATA_DATASET_ID = "analytics_280581623"
 SENSITIVE_PATTERNS = [
     r'.*pii.*', r'.*personal.*', r'.*ssn.*', r'.*password.*',
     r'.*credit.*card.*', r'.*payment.*', r'.*secret.*', r'.*token.*',
-    r'.*auth.*', r'.*credential.*'
+    r'.*auth.*', r'.*credential.*',
+    r'.*email.*', r'.*phone.*', r'.*mobile.*', r'.*tel.*',
+    r'.*user.*id.*', r'.*customer.*id.*', r'.*account.*id.*',
+    r'.*address.*', r'.*zip.*', r'.*postal.*',
+    r'.*ip.*address.*', r'.*mac.*address.*'
 ]
+
+# Patterns for detecting sensitive values
+SENSITIVE_VALUE_PATTERNS = {
+    'email': r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+    'phone': r'^\+?[1-9]\d{1,14}$|^\d{10,}$',
+    'credit_card': r'^\d{13,19}$',
+    'ssn': r'^\d{3}-\d{2}-\d{4}$',
+    'ip_address': r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$'
+}
 
 # OpenAI Configuration
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -74,6 +87,50 @@ def mask_table_name(table_fqn):
         return "sensitive_table"
     return table_fqn
 
+def mask_sensitive_value(value, column_name=None):
+    """Маскирование чувствительных значений перед отправкой в OpenAI"""
+    if value is None:
+        return None
+    
+    value_str = str(value).strip()
+    
+    # Если колонка чувствительная - маскировать все значения
+    if column_name and is_sensitive_name(column_name):
+        if isinstance(value, (int, float)):
+            return "***"
+        elif isinstance(value, str):
+            if len(value_str) <= 3:
+                return "***"
+            return value_str[:3] + "***"
+        return "***"
+    
+    # Проверка паттернов в значениях
+    # Email
+    if re.match(SENSITIVE_VALUE_PATTERNS['email'], value_str, re.IGNORECASE):
+        return "***@***.***"
+    
+    # Phone
+    if re.match(SENSITIVE_VALUE_PATTERNS['phone'], value_str):
+        return "***-***-****"
+    
+    # Credit card
+    if re.match(SENSITIVE_VALUE_PATTERNS['credit_card'], value_str):
+        return "****-****-****-****"
+    
+    # SSN
+    if re.match(SENSITIVE_VALUE_PATTERNS['ssn'], value_str):
+        return "***-**-****"
+    
+    # IP address
+    if re.match(SENSITIVE_VALUE_PATTERNS['ip_address'], value_str):
+        return "***.***.***.***"
+    
+    # Если значение похоже на ID (только цифры, длина 5-20)
+    if isinstance(value, (int, str)) and re.match(r'^\d{5,20}$', value_str):
+        return "***"
+    
+    return value
+
 def get_user_email(request: Request) -> str:
     """
     Get user email from OAuth session or fallback.
@@ -91,18 +148,33 @@ def get_bq_client(request: Request):
     return get_user_bigquery_client(request)
 
 def get_table_sample_data(bq_client, dataset_id, table_name, sample_percent=2, max_rows=5):
-    """Get sample data from table using TABLESAMPLE SYSTEM"""
+    """Get sample data from table using TABLESAMPLE SYSTEM with security filtering"""
     try:
         table_ref = bq_client.get_table(f"{PROJECT_ID}.{dataset_id}.{table_name}")
+        
+        # Исключить чувствительные колонки из sample данных
+        safe_columns = [
+            field.name for field in table_ref.schema 
+            if not is_sensitive_name(field.name)
+        ]
+        
+        # Если все колонки чувствительные - не отправлять sample данные
+        if not safe_columns:
+            logger.warning(f"All columns in {dataset_id}.{table_name} are sensitive, skipping sample data")
+            return None
+        
+        # SELECT только безопасных колонок
+        columns_str = ", ".join([f"`{col}`" for col in safe_columns])
+        
         if table_ref.table_type in ["VIEW", "MATERIALIZED_VIEW"]:
             query = f"""
-            SELECT *
+            SELECT {columns_str}
             FROM `{PROJECT_ID}.{dataset_id}.{table_name}`
             LIMIT {max_rows}
             """
         else:
             query = f"""
-            SELECT *
+            SELECT {columns_str}
             FROM `{PROJECT_ID}.{dataset_id}.{table_name}`
             TABLESAMPLE SYSTEM ({sample_percent} PERCENT)
             LIMIT {max_rows}
@@ -119,25 +191,37 @@ def get_table_sample_data(bq_client, dataset_id, table_name, sample_percent=2, m
                 value = row[col]
                 if value is None:
                     row_dict[col] = None
-                elif isinstance(value, str) and len(value) > 100:
-                    row_dict[col] = value[:100] + "..."
                 else:
-                    row_dict[col] = value
+                    # Маскировать чувствительные значения
+                    masked_value = mask_sensitive_value(value, col)
+                    # Обрезать длинные строки
+                    if isinstance(masked_value, str) and len(masked_value) > 100:
+                        row_dict[col] = masked_value[:100] + "..."
+                    else:
+                        row_dict[col] = masked_value
             sample_data.append(row_dict)
         
         return sample_data
     except Exception as e:
+        logger.error(f"Error getting sample data: {e}")
         return None
 
 def format_sample_data_for_prompt(sample_data, max_examples=3):
-    """Format sample data for inclusion in AI prompt"""
+    """Format sample data for inclusion in AI prompt with value masking"""
     if not sample_data or len(sample_data) == 0:
         return None
     
     examples = sample_data[:max_examples]
     formatted = []
     for i, row in enumerate(examples, 1):
-        row_str = ", ".join([f"{k}={v}" for k, v in row.items() if v is not None])
+        # Значения уже замаскированы в get_table_sample_data, но дополнительно проверим
+        row_items = []
+        for k, v in row.items():
+            if v is not None:
+                # Дополнительное маскирование на случай, если что-то пропустили
+                masked_value = mask_sensitive_value(v, k)
+                row_items.append(f"{k}={masked_value}")
+        row_str = ", ".join(row_items)
         formatted.append(f"Example {i}: {row_str}")
     
     return "\n".join(formatted)
@@ -682,34 +766,42 @@ async def generate_column_description(
         
         data_type = df_type.iloc[0]['data_type']
         
-        # Get sample values
+        # Get sample values (only if column is not sensitive)
         sample_values_text = ""
-        try:
-            table_ref = bq_client.get_table(f"{PROJECT_ID}.{dataset}.{table_name}")
-            if table_ref.table_type not in ["VIEW", "MATERIALIZED_VIEW"]:
-                query_values = f"""
-                SELECT DISTINCT `{column_name}`
-                FROM `{PROJECT_ID}.{dataset}.{table_name}`
-                TABLESAMPLE SYSTEM (2 PERCENT)
-                WHERE `{column_name}` IS NOT NULL
-                LIMIT 5
-                """
-            else:
-                query_values = f"""
-                SELECT DISTINCT `{column_name}`
-                FROM `{PROJECT_ID}.{dataset}.{table_name}`
-                WHERE `{column_name}` IS NOT NULL
-                LIMIT 5
-                """
-            
-            df_values = bq_client.query(query_values, job_config=bigquery.QueryJobConfig(use_legacy_sql=False)).to_dataframe()
-            
-            if not df_values.empty:
-                values = [str(v)[:50] for v in df_values[column_name].head(5).tolist() if v is not None]
-                if values:
-                    sample_values_text = f"\nSample values: {', '.join(values)}"
-        except Exception:
-            pass  # Continue without sample values
+        if not is_sensitive_name(column_name):
+            try:
+                table_ref = bq_client.get_table(f"{PROJECT_ID}.{dataset}.{table_name}")
+                if table_ref.table_type not in ["VIEW", "MATERIALIZED_VIEW"]:
+                    query_values = f"""
+                    SELECT DISTINCT `{column_name}`
+                    FROM `{PROJECT_ID}.{dataset}.{table_name}`
+                    TABLESAMPLE SYSTEM (2 PERCENT)
+                    WHERE `{column_name}` IS NOT NULL
+                    LIMIT 5
+                    """
+                else:
+                    query_values = f"""
+                    SELECT DISTINCT `{column_name}`
+                    FROM `{PROJECT_ID}.{dataset}.{table_name}`
+                    WHERE `{column_name}` IS NOT NULL
+                    LIMIT 5
+                    """
+                
+                df_values = bq_client.query(query_values, job_config=bigquery.QueryJobConfig(use_legacy_sql=False)).to_dataframe()
+                
+                if not df_values.empty:
+                    # Маскировать значения перед отправкой
+                    masked_values = []
+                    for v in df_values[column_name].head(5).tolist():
+                        if v is not None:
+                            masked_v = mask_sensitive_value(v, column_name)
+                            masked_values.append(str(masked_v)[:50])
+                    if masked_values:
+                        sample_values_text = f"\nSample values: {', '.join(masked_values)}"
+            except Exception:
+                pass  # Continue without sample values
+        else:
+            logger.info(f"Skipping sample values for sensitive column: {column_name}")
         
         # Build prompt with masking
         table_fqn = f"{dataset}.{table_name}"

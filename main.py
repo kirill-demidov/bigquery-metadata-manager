@@ -38,8 +38,21 @@ import logging
 SENSITIVE_PATTERNS = [
     r'.*pii.*', r'.*personal.*', r'.*ssn.*', r'.*password.*',
     r'.*credit.*card.*', r'.*payment.*', r'.*secret.*', r'.*token.*',
-    r'.*auth.*', r'.*credential.*'
+    r'.*auth.*', r'.*credential.*',
+    r'.*email.*', r'.*phone.*', r'.*mobile.*', r'.*tel.*',
+    r'.*user.*id.*', r'.*customer.*id.*', r'.*account.*id.*',
+    r'.*address.*', r'.*zip.*', r'.*postal.*',
+    r'.*ip.*address.*', r'.*mac.*address.*'
 ]
+
+# Patterns for detecting sensitive values
+SENSITIVE_VALUE_PATTERNS = {
+    'email': r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+    'phone': r'^\+?[1-9]\d{1,14}$|^\d{10,}$',
+    'credit_card': r'^\d{13,19}$',
+    'ssn': r'^\d{3}-\d{2}-\d{4}$',
+    'ip_address': r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$'
+}
 
 # Whitelist/Blacklist датасетов (опционально)
 ALLOWED_DATASETS = None  # None = все разрешены, или список: ["analytics", "staging"]
@@ -64,6 +77,50 @@ def mask_table_name(table_fqn):
     if is_sensitive_name(table_fqn):
         return "sensitive_table"
     return table_fqn
+
+def mask_sensitive_value(value, column_name=None):
+    """Маскирование чувствительных значений перед отправкой в OpenAI"""
+    if value is None:
+        return None
+    
+    value_str = str(value).strip()
+    
+    # Если колонка чувствительная - маскировать все значения
+    if column_name and is_sensitive_name(column_name):
+        if isinstance(value, (int, float)):
+            return "***"
+        elif isinstance(value, str):
+            if len(value_str) <= 3:
+                return "***"
+            return value_str[:3] + "***"
+        return "***"
+    
+    # Проверка паттернов в значениях
+    # Email
+    if re.match(SENSITIVE_VALUE_PATTERNS['email'], value_str, re.IGNORECASE):
+        return "***@***.***"
+    
+    # Phone
+    if re.match(SENSITIVE_VALUE_PATTERNS['phone'], value_str):
+        return "***-***-****"
+    
+    # Credit card
+    if re.match(SENSITIVE_VALUE_PATTERNS['credit_card'], value_str):
+        return "****-****-****-****"
+    
+    # SSN
+    if re.match(SENSITIVE_VALUE_PATTERNS['ssn'], value_str):
+        return "***-**-****"
+    
+    # IP address
+    if re.match(SENSITIVE_VALUE_PATTERNS['ip_address'], value_str):
+        return "***.***.***.***"
+    
+    # Если значение похоже на ID (только цифры, длина 5-20)
+    if isinstance(value, (int, str)) and re.match(r'^\d{5,20}$', value_str):
+        return "***"
+    
+    return value
 
 def validate_table_name(table_name):
     """Валидация имени таблицы BigQuery"""
@@ -189,23 +246,39 @@ def get_table_type(project_id, dataset_id, table_name):
 
 def get_table_sample_data(project_id, dataset_id, table_name, sample_percent=2, max_rows=10):
     """
-    Get sample data from table using TABLESAMPLE SYSTEM.
+    Get sample data from table using TABLESAMPLE SYSTEM with security filtering.
     Returns sample rows as a list of dictionaries or None if failed.
+    Excludes sensitive columns and masks sensitive values.
     """
     try:
         # Check if table is a view or materialized view (TABLESAMPLE doesn't work on views)
         table_ref = bq_client.get_table(f"{project_id}.{dataset_id}.{table_name}")
+        
+        # Исключить чувствительные колонки из sample данных
+        safe_columns = [
+            field.name for field in table_ref.schema 
+            if not is_sensitive_name(field.name)
+        ]
+        
+        # Если все колонки чувствительные - не отправлять sample данные
+        if not safe_columns:
+            logger.warning(f"All columns in {dataset_id}.{table_name} are sensitive, skipping sample data")
+            return None
+        
+        # SELECT только безопасных колонок
+        columns_str = ", ".join([f"`{col}`" for col in safe_columns])
+        
         if table_ref.table_type in ["VIEW", "MATERIALIZED_VIEW"]:
             # For views, use LIMIT instead
             query = f"""
-            SELECT *
+            SELECT {columns_str}
             FROM `{project_id}.{dataset_id}.{table_name}`
             LIMIT {max_rows}
             """
         else:
             # For regular tables, use TABLESAMPLE
             query = f"""
-            SELECT *
+            SELECT {columns_str}
             FROM `{project_id}.{dataset_id}.{table_name}`
             TABLESAMPLE SYSTEM ({sample_percent} PERCENT)
             LIMIT {max_rows}
@@ -221,19 +294,22 @@ def get_table_sample_data(project_id, dataset_id, table_name, sample_percent=2, 
         if df.empty:
             return None
         
-        # Convert to list of dictionaries, limit values to avoid huge prompts
+        # Convert to list of dictionaries, mask sensitive values
         sample_data = []
         for _, row in df.head(max_rows).iterrows():
             row_dict = {}
             for col in df.columns:
                 value = row[col]
-                # Truncate long strings and handle None
                 if value is None:
                     row_dict[col] = None
-                elif isinstance(value, str) and len(value) > 100:
-                    row_dict[col] = value[:100] + "..."
                 else:
-                    row_dict[col] = value
+                    # Маскировать чувствительные значения
+                    masked_value = mask_sensitive_value(value, col)
+                    # Truncate long strings
+                    if isinstance(masked_value, str) and len(masked_value) > 100:
+                        row_dict[col] = masked_value[:100] + "..."
+                    else:
+                        row_dict[col] = masked_value
             sample_data.append(row_dict)
         
         return sample_data
@@ -242,7 +318,7 @@ def get_table_sample_data(project_id, dataset_id, table_name, sample_percent=2, 
         return None
 
 def format_sample_data_for_prompt(sample_data, max_examples=3):
-    """Format sample data for inclusion in AI prompt"""
+    """Format sample data for inclusion in AI prompt with value masking"""
     if not sample_data or len(sample_data) == 0:
         return None
     
@@ -251,7 +327,14 @@ def format_sample_data_for_prompt(sample_data, max_examples=3):
     
     formatted = []
     for i, row in enumerate(examples, 1):
-        row_str = ", ".join([f"{k}={v}" for k, v in row.items() if v is not None])
+        # Значения уже замаскированы в get_table_sample_data, но дополнительно проверим
+        row_items = []
+        for k, v in row.items():
+            if v is not None:
+                # Дополнительное маскирование на случай, если что-то пропустили
+                masked_value = mask_sensitive_value(v, k)
+                row_items.append(f"{k}={masked_value}")
+        row_str = ", ".join(row_items)
         formatted.append(f"Example {i}: {row_str}")
     
     return "\n".join(formatted)
@@ -287,9 +370,14 @@ def generate_column_description_ai(column_name, data_type, table_fqn, dataset_id
             df_values = bq_client.query(query, job_config=job_config).to_dataframe()
             
             if not df_values.empty:
-                values = [str(v)[:50] for v in df_values[column_name].head(5).tolist() if v is not None]
-                if values:
-                    sample_values_text = f"\nSample values: {', '.join(values)}"
+                # Маскировать значения перед отправкой
+                masked_values = []
+                for v in df_values[column_name].head(5).tolist():
+                    if v is not None:
+                        masked_v = mask_sensitive_value(v, column_name)
+                        masked_values.append(str(masked_v)[:50])
+                if masked_values:
+                    sample_values_text = f"\nSample values: {', '.join(masked_values)}"
         except Exception as e:
             logger.debug(f"Could not get sample values for {column_name}: {e}")
     
