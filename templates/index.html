@@ -30,7 +30,17 @@
             <span style="margin-left: 20px;">💡 Стоимость промптов отображается при генерации в консоли</span>
         </div>
 
-        {% if error %}
+        {% if requires_auth %}
+        <div class="empty-state" style="text-align: center; padding: 60px 20px;">
+            <h2 style="color: #333; margin-bottom: 20px;">🔐 Требуется авторизация</h2>
+            <p style="color: #666; margin-bottom: 30px; font-size: 16px;">
+                Для доступа к метаданным BigQuery необходимо войти через Google аккаунт
+            </p>
+            <a href="/login" class="btn btn-primary" style="padding: 12px 24px; font-size: 16px; text-decoration: none;">
+                🔐 Войти через Google
+            </a>
+        </div>
+        {% elif error %}
         <div class="error-state">
             <p style="color: #ea4335; font-weight: bold;">❌ Ошибка при загрузке данных:</p>
             <p style="color: #666; font-size: 14px;">{{ error }}</p>
