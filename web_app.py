@@ -216,14 +216,28 @@ async def logout(request: Request):
     return RedirectResponse(url="/", status_code=302)
 
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request, user: dict = Depends(require_auth)):
+async def index(request: Request):
     """Main page - list of all tables"""
     try:
-        # Get user email from OAuth session
-        user_email = user.get('email') if user else None
+        # Try to get user from session (optional - page is accessible without auth)
+        try:
+            user = get_current_user(request)
+            user_email = user.get('email') if user else None
+            bq_client = get_bq_client(request)
+        except HTTPException:
+            # User not authenticated - show login page
+            user_email = None
+            bq_client = None
         
-        # Get BigQuery client (uses user's OAuth credentials)
-        bq_client = get_bq_client(request)
+        # If user not authenticated, show login page
+        if not bq_client:
+            return templates.TemplateResponse("index.html", {
+                "request": request,
+                "datasets": [],
+                "project_id": PROJECT_ID,
+                "user_email": None,
+                "requires_auth": True
+            })
         
         # Get all tables with descriptions
         query = f"""
@@ -261,7 +275,8 @@ async def index(request: Request, user: dict = Depends(require_auth)):
             "request": request,
             "datasets": datasets_list,
             "project_id": PROJECT_ID,
-            "user_email": user_email
+            "user_email": user_email,
+            "requires_auth": False
         })
     except Exception as e:
         import traceback
@@ -269,12 +284,19 @@ async def index(request: Request, user: dict = Depends(require_auth)):
         print(f"ERROR in index(): {e}")
         print(error_details)
         # Return error page instead of raising exception
+        try:
+            user = get_current_user(request)
+            user_email = user.get('email') if user else None
+        except:
+            user_email = None
+        
         return templates.TemplateResponse("index.html", {
             "request": request,
             "datasets": [],
             "project_id": PROJECT_ID,
             "user_email": user_email,
-            "error": str(e)
+            "error": str(e),
+            "requires_auth": False
         })
 
 
