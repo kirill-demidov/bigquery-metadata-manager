@@ -1,6 +1,7 @@
 steps:
   # Сборка Docker образа для Web UI
   - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-image'
     args:
       - 'build'
       - '--platform=linux/amd64'
@@ -14,17 +15,22 @@ steps:
 
   # Отправка образа в Container Registry
   - name: 'gcr.io/cloud-builders/docker'
+    id: 'push-tagged'
     args:
       - 'push'
       - 'gcr.io/$PROJECT_ID/tables-and-columns-description-web:$SHORT_SHA'
+    waitFor: ['build-image']
 
   - name: 'gcr.io/cloud-builders/docker'
+    id: 'push-latest'
     args:
       - 'push'
       - 'gcr.io/$PROJECT_ID/tables-and-columns-description-web:latest'
+    waitFor: ['build-image']
 
   # Развертывание Cloud Run Service (Web UI)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'deploy'
     entrypoint: gcloud
     args:
       - 'run'
@@ -39,7 +45,7 @@ steps:
       - '--port=8081'
       - '--set-secrets=OPENAI_API_KEY=analytics_table_desc_ai_creator:latest'
       - '--project=$PROJECT_ID'
-    waitFor: ['-']
+    waitFor: ['push-tagged']
 
 images:
   - 'gcr.io/$PROJECT_ID/tables-and-columns-description-web:$SHORT_SHA'
@@ -50,4 +56,3 @@ options:
   logging: CLOUD_LOGGING_ONLY
 
 timeout: '1200s'
-
