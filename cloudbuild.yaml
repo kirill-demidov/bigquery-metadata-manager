@@ -34,7 +34,7 @@ steps:
       - '--cpu=2'
       - '--max-retries=1'
       - '--task-timeout=3600'
-      - '--set-env-vars=OPENAI_API_KEY=${_OPENAI_API_KEY}'
+      - '--update-secrets=OPENAI_API_KEY=analytics_table_desc_ai_creator:latest'
       - '--project=$PROJECT_ID'
     # Если job не существует, создаем его
     waitFor: ['-']
@@ -52,7 +52,7 @@ steps:
       - '--cpu=2'
       - '--max-retries=1'
       - '--task-timeout=3600'
-      - '--set-env-vars=OPENAI_API_KEY=${_OPENAI_API_KEY}'
+      - '--set-secrets=OPENAI_API_KEY=analytics_table_desc_ai_creator:latest'
       - '--project=$PROJECT_ID'
     waitFor: ['-']
     # Игнорируем ошибку, если job уже существует

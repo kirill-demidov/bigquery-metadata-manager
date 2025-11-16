@@ -61,9 +61,10 @@ python main.py
 ### Вариант 1: Автоматический деплой через Cloud Build
 
 ```bash
-gcloud builds submit --config=cloudbuild.yaml \
-  --substitutions=_OPENAI_API_KEY=your_openai_api_key_here
+gcloud builds submit --config=cloudbuild.yaml
 ```
+
+**Примечание:** API ключ автоматически берется из Secret Manager (`analytics_table_desc_ai_creator`). Убедитесь, что Cloud Build имеет доступ к секрету.
 
 ### Вариант 2: Ручной деплой
 
@@ -83,7 +84,7 @@ gcloud run jobs create tables-and-columns-description \
   --cpu 2 \
   --max-retries 1 \
   --task-timeout 3600 \
-  --set-env-vars OPENAI_API_KEY=your_openai_api_key_here
+  --set-secrets OPENAI_API_KEY=analytics_table_desc_ai_creator:latest
 ```
 
 #### 3. Запуск Job
@@ -94,21 +95,28 @@ gcloud run jobs execute tables-and-columns-description --region europe-west1
 
 ### Настройка переменных окружения через Secret Manager (рекомендуется)
 
-Для безопасности лучше хранить API ключ в Secret Manager:
+API ключ OpenAI хранится в Secret Manager GCP под именем `analytics_table_desc_ai_creator`.
+
+**Важно:** Убедитесь, что сервисный аккаунт Cloud Run имеет доступ к секрету:
 
 ```bash
-# Создать секрет
-echo -n "your_openai_api_key" | gcloud secrets create openai-api-key --data-file=-
-
-# Предоставить доступ Cloud Run
-gcloud secrets add-iam-policy-binding openai-api-key \
+# Предоставить доступ Cloud Run к секрету (если еще не предоставлен)
+gcloud secrets add-iam-policy-binding analytics_table_desc_ai_creator \
   --member="serviceAccount:PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
   --role="roles/secretmanager.secretAccessor"
+```
 
-# Обновить Job с использованием секрета
-gcloud run jobs update tables-and-columns-description \
+Секрет автоматически подключается при деплое через Cloud Build. При ручном создании Job используйте:
+
+```bash
+gcloud run jobs create tables-and-columns-description \
+  --image gcr.io/guns-and-gangs/tables-and-columns-description \
   --region europe-west1 \
-  --update-secrets OPENAI_API_KEY=openai-api-key:latest
+  --memory 2Gi \
+  --cpu 2 \
+  --max-retries 1 \
+  --task-timeout 3600 \
+  --set-secrets OPENAI_API_KEY=analytics_table_desc_ai_creator:latest
 ```
 
 ## Конфигурация
