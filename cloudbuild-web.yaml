@@ -3,6 +3,7 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
+      - '--platform=linux/amd64'
       - '-f'
       - 'Dockerfile.web'
       - '-t'
