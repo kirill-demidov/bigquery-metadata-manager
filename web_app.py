@@ -363,23 +363,31 @@ async def index(request: Request):
             metadata_dict[key] = row
         
         # Get table descriptions from BigQuery schema
-        # Check descriptions in INFORMATION_SCHEMA.TABLES
-        # Exclude sharded tables with suffixes _YYYYMMDD or _YYMMDD
-        query_schema_descriptions = f"""
-        SELECT 
-            table_schema as dataset,
-            table_name,
-            table_description
-        FROM `{PROJECT_ID}`.`region-eu`.INFORMATION_SCHEMA.TABLES
-        WHERE table_schema NOT IN ('INFORMATION_SCHEMA', '_script')
-        AND NOT REGEXP_CONTAINS(table_name, r'_\\d{{6,8}}$')
-        """
-        
-        df_schema = bq_client.query(query_schema_descriptions).to_dataframe()
+        # Use get_table().description API (same as main.py does) for accurate description retrieval
+        # This is more reliable than TABLE_OPTIONS for getting actual table descriptions
+        # We'll get descriptions for tables that have metadata first, then batch check others if needed
         schema_dict = {}
-        for row in df_schema.to_dict("records"):
+        
+        # For tables that have metadata, check their schema descriptions
+        # For efficiency, we'll check descriptions only for tables we're processing
+        unique_tables = set()
+        for row in df_all.to_dict("records"):
             key = f"{row['dataset']}.{row['table_name']}"
-            schema_dict[key] = row.get('table_description')
+            unique_tables.add((row['dataset'], row['table_name']))
+        
+        # Get descriptions using get_table API (same approach as main.py)
+        # This is more accurate than TABLE_OPTIONS
+        for dataset, table_name in unique_tables:
+            try:
+                table_ref = bq_client.get_table(f"{PROJECT_ID}.{dataset}.{table_name}")
+                desc = (table_ref.description or "").strip()
+                key = f"{dataset}.{table_name}"
+                schema_dict[key] = desc if desc else None
+            except Exception as e:
+                # If table doesn't exist or can't be accessed, skip it
+                logger.debug(f"Could not get description for {dataset}.{table_name}: {e}")
+                key = f"{dataset}.{table_name}"
+                schema_dict[key] = None
         
         # Merge: get all tables and add metadata if available
         tables = []
