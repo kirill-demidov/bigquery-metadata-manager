@@ -159,6 +159,143 @@ async function saveColumnDescription(dataset, tableName, columnName) {
     }
 }
 
+// Save all column descriptions
+async function saveAllColumnDescriptions() {
+    const pathParts = window.location.pathname.split('/');
+    const dataset = pathParts[2];
+    const tableName = pathParts[3];
+    
+    // Get all textareas with column descriptions
+    const textareas = document.querySelectorAll(
+        `textarea[data-dataset="${dataset}"][data-table="${tableName}"][data-column]`
+    );
+    
+    if (textareas.length === 0) {
+        alert('Нет колонок для сохранения');
+        return;
+    }
+    
+    const statusEl = document.getElementById('saveAllStatus');
+    const saveButton = document.querySelector('button[onclick="saveAllColumnDescriptions()"]');
+    
+    if (!saveButton) {
+        console.error('Save button not found');
+        return;
+    }
+    
+    const originalButtonText = saveButton.textContent;
+    
+    // Disable button and show progress
+    saveButton.disabled = true;
+    saveButton.textContent = '💾 Сохранение...';
+    
+    let savedCount = 0;
+    let errorCount = 0;
+    const errors = [];
+    
+    statusEl.innerHTML = `<div style="padding: 10px; background: #f0f0f0; border-radius: 4px; font-size: 12px;">
+        <strong>🔄 Сохранение описаний колонок...</strong><br>
+        <div id="saveProgress" style="margin-top: 5px;">Обработано: 0 / ${textareas.length}</div>
+    </div>`;
+    statusEl.className = 'save-status';
+    
+    // Save each column description sequentially
+    for (let i = 0; i < textareas.length; i++) {
+        const textarea = textareas[i];
+        const columnName = textarea.getAttribute('data-column');
+        const description = textarea.value.trim();
+        
+        // Skip empty descriptions
+        if (!description) {
+            savedCount++;
+            updateProgress(savedCount, textareas.length, errorCount);
+            continue;
+        }
+        
+        try {
+            const formData = new FormData();
+            formData.append('description', description);
+            
+            const response = await fetch(
+                `/api/table/${dataset}/${tableName}/column/${columnName}/description`,
+                {
+                    method: 'POST',
+                    body: formData
+                }
+            );
+            
+            if (response.ok) {
+                savedCount++;
+                // Update individual status
+                const individualStatus = document.getElementById(`status-${dataset}-${tableName}-${columnName}`);
+                if (individualStatus) {
+                    individualStatus.textContent = '✓ Сохранено';
+                    individualStatus.className = 'save-status';
+                }
+            } else {
+                errorCount++;
+                const error = await response.json();
+                errors.push(`${columnName}: ${error.detail || 'Неизвестная ошибка'}`);
+                
+                // Update individual status
+                const individualStatus = document.getElementById(`status-${dataset}-${tableName}-${columnName}`);
+                if (individualStatus) {
+                    individualStatus.textContent = '✗ Ошибка';
+                    individualStatus.className = 'save-status error';
+                }
+            }
+        } catch (error) {
+            errorCount++;
+            errors.push(`${columnName}: Ошибка соединения`);
+            
+            // Update individual status
+            const individualStatus = document.getElementById(`status-${dataset}-${tableName}-${columnName}`);
+            if (individualStatus) {
+                individualStatus.textContent = '✗ Ошибка';
+                individualStatus.className = 'save-status error';
+            }
+        }
+        
+        // Update progress
+        updateProgress(savedCount, textareas.length, errorCount);
+        
+        // Small delay to avoid overwhelming the server
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    // Show final result
+    saveButton.disabled = false;
+    saveButton.textContent = originalButtonText;
+    
+    if (errorCount === 0) {
+        statusEl.innerHTML = `<div style="padding: 10px; background: #e8f5e9; border-radius: 4px; font-size: 12px;">
+            <strong>✅ Успешно сохранено!</strong><br>
+            Сохранено описаний: ${savedCount} из ${textareas.length}
+        </div>`;
+        statusEl.className = 'save-status';
+        
+        setTimeout(() => {
+            statusEl.innerHTML = '';
+        }, 5000);
+    } else {
+        statusEl.innerHTML = `<div style="padding: 10px; background: #ffebee; border-radius: 4px; font-size: 12px; color: #c62828;">
+            <strong>⚠️ Сохранение завершено с ошибками</strong><br>
+            Успешно: ${savedCount} из ${textareas.length}<br>
+            Ошибок: ${errorCount}<br>
+            ${errors.length > 0 ? '<div style="margin-top: 5px; font-size: 11px;">' + errors.slice(0, 5).join('<br>') + (errors.length > 5 ? '<br>... и еще ' + (errors.length - 5) + ' ошибок' : '') + '</div>' : ''}
+        </div>`;
+        statusEl.className = 'save-status error';
+    }
+}
+
+// Helper function to update progress
+function updateProgress(saved, total, errors) {
+    const progressEl = document.getElementById('saveProgress');
+    if (progressEl) {
+        progressEl.textContent = `Обработано: ${saved} / ${total}${errors > 0 ? ` (ошибок: ${errors})` : ''}`;
+    }
+}
+
 // Variables to store generation context
 let pendingGenerateAction = null;
 
@@ -275,18 +412,28 @@ function closeGenerateInfoModal() {
 
 // Confirm and proceed with generation
 function confirmGenerate() {
+    // Сохраняем данные перед закрытием модального окна
+    const action = pendingGenerateAction;
+    
+    if (!action) {
+        console.error('No pending generate action');
+        return;
+    }
+    
+    // Закрываем модальное окно
     closeGenerateInfoModal();
     
-    if (!pendingGenerateAction) return;
-    
-    if (pendingGenerateAction.type === 'table') {
+    // Выполняем генерацию
+    if (action.type === 'table') {
         generateTableDescription();
-    } else if (pendingGenerateAction.type === 'column') {
+    } else if (action.type === 'column') {
         generateColumnDescription(
-            pendingGenerateAction.dataset,
-            pendingGenerateAction.tableName,
-            pendingGenerateAction.columnName
+            action.dataset,
+            action.tableName,
+            action.columnName
         );
+    } else {
+        console.error('Unknown action type:', action.type);
     }
 }
 

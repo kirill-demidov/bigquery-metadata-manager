@@ -63,7 +63,7 @@
                     <span class="dataset-icon">📁</span>
                     <span class="dataset-name">{{ dataset_info.dataset }}</span>
                     <span class="dataset-count">({{ dataset_info.table_count }} таблиц)</span>
-                    <span class="toggle-icon" id="icon-{{ dataset_info.dataset }}">▼</span>
+                    <span class="toggle-icon" id="icon-{{ dataset_info.dataset }}">▶</span>
                 </div>
                 <div class="dataset-content" id="content-{{ dataset_info.dataset }}" style="display: none;">
                     <table class="tables-table">
@@ -79,7 +79,16 @@
                         <tbody>
                             {% for table in dataset_info.tables %}
                             <tr>
-                                <td class="table-name">{{ table.table_name }}</td>
+                                <td class="table-name">
+                                    {{ table.table_name }}
+                                    {% if table.description_status == 'both' %}
+                                        <span class="status-badge status-both" title="Описание есть и в мета-таблице и в BigQuery schema">✅</span>
+                                    {% elif table.description_status == 'meta_only' %}
+                                        <span class="status-badge status-meta-only" title="Описание есть только в мета-таблице (таблица была пересоздана)">⚠️</span>
+                                    {% elif table.description_status == 'none' %}
+                                        <span class="status-badge status-none" title="Нет описания ни в мета-таблице, ни в BigQuery schema">❌</span>
+                                    {% endif %}
+                                </td>
                                 <td class="description">
                                     {% if table.table_description %}
                                         {{ table.table_description[:100] }}{% if table.table_description|length > 100 %}...{% endif %}
@@ -96,7 +105,7 @@
                                     {% endif %}
                                 </td>
                                 <td class="actions">
-                                    <a href="/table/{{ table.dataset }}/{{ table.table_name }}" class="btn btn-primary">Открыть</a>
+                                    <a href="/table/{{ table.dataset }}/{{ table.table_name }}" class="btn btn-primary" onclick="event.stopPropagation(); return true;">Открыть</a>
                                 </td>
                             </tr>
                             {% endfor %}

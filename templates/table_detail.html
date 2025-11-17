@@ -48,9 +48,15 @@
         <div class="section">
             <h2>Колонки ({{ columns|length }})</h2>
             
-            <div class="search-box">
-                <input type="text" id="columnSearch" placeholder="Поиск по колонке..." onkeyup="filterColumns()">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <div class="search-box" style="flex: 1; margin-right: 15px;">
+                    <input type="text" id="columnSearch" placeholder="Поиск по колонке..." onkeyup="filterColumns()">
+                </div>
+                <button onclick="saveAllColumnDescriptions()" class="btn btn-primary" style="background: #1a73e8; white-space: nowrap;">
+                    💾 Сохранить все описания колонок
+                </button>
             </div>
+            <div id="saveAllStatus" class="save-status" style="margin-bottom: 10px;"></div>
 
             <table class="columns-table">
                 <thead>

@@ -323,8 +323,24 @@ async def index(request: Request):
                 "requires_auth": True
             })
         
-        # Get all tables with descriptions
-        query = f"""
+        # Get ALL tables from BigQuery INFORMATION_SCHEMA (not just from metadata table)
+        # This ensures we show all tables, even if they don't have descriptions yet
+        # Exclude sharded tables with suffixes _YYYYMMDD or _YYMMDD
+        query_all_tables = f"""
+        SELECT 
+            table_schema as dataset,
+            table_name,
+            table_type
+        FROM `{PROJECT_ID}`.INFORMATION_SCHEMA.TABLES
+        WHERE table_schema NOT IN ('INFORMATION_SCHEMA', '_script')
+        AND NOT REGEXP_CONTAINS(table_name, r'_\\d{{6,8}}$')
+        ORDER BY table_schema, table_name
+        """
+        
+        df_all = bq_client.query(query_all_tables).to_dataframe()
+        
+        # Get descriptions from metadata table
+        query_metadata = f"""
         SELECT DISTINCT 
             t.dataset,
             t.table_name,
@@ -335,11 +351,88 @@ async def index(request: Request):
         LEFT JOIN `{PROJECT_ID}.{METADATA_DATASET_ID}.column_descriptions` c
             ON t.dataset = c.dataset AND t.table_name = c.table_name
         GROUP BY t.dataset, t.table_name, t.table_description, t.job_insert_ts
-        ORDER BY t.dataset, t.table_name
         """
         
-        df = bq_client.query(query).to_dataframe()
-        tables = df.to_dict("records")
+        df_metadata = bq_client.query(query_metadata).to_dataframe()
+        
+        # Create a dict for quick lookup of metadata
+        metadata_dict = {}
+        for row in df_metadata.to_dict("records"):
+            key = f"{row['dataset']}.{row['table_name']}"
+            metadata_dict[key] = row
+        
+        # Get table descriptions from BigQuery schema
+        # Check descriptions in INFORMATION_SCHEMA.TABLES
+        # Exclude sharded tables with suffixes _YYYYMMDD or _YYMMDD
+        query_schema_descriptions = f"""
+        SELECT 
+            table_schema as dataset,
+            table_name,
+            table_description
+        FROM `{PROJECT_ID}`.INFORMATION_SCHEMA.TABLES
+        WHERE table_schema NOT IN ('INFORMATION_SCHEMA', '_script')
+        AND NOT REGEXP_CONTAINS(table_name, r'_\\d{{6,8}}$')
+        """
+        
+        df_schema = bq_client.query(query_schema_descriptions).to_dataframe()
+        schema_dict = {}
+        for row in df_schema.to_dict("records"):
+            key = f"{row['dataset']}.{row['table_name']}"
+            schema_dict[key] = row.get('table_description')
+        
+        # Merge: get all tables and add metadata if available
+        tables = []
+        for row in df_all.to_dict("records"):
+            key = f"{row['dataset']}.{row['table_name']}"
+            has_meta_desc = key in metadata_dict and metadata_dict[key].get('table_description')
+            has_schema_desc = key in schema_dict and schema_dict[key] and len(str(schema_dict[key]).strip()) > 0
+            
+            # Determine status
+            if has_meta_desc and has_schema_desc:
+                status = 'both'  # Есть и в мета-таблице и в schema
+            elif has_meta_desc and not has_schema_desc:
+                status = 'meta_only'  # Есть только в мета-таблице
+            else:
+                status = 'none'  # Нет ни там, ни там
+            
+            if key in metadata_dict:
+                # Table has metadata
+                meta = metadata_dict[key]
+                tables.append({
+                    'dataset': row['dataset'],
+                    'table_name': row['table_name'],
+                    'table_description': meta.get('table_description'),
+                    'job_insert_ts': meta.get('job_insert_ts'),
+                    'column_count': meta.get('column_count', 0),
+                    'description_status': status
+                })
+            else:
+                # Table exists but has no metadata yet
+                # Get column count from INFORMATION_SCHEMA
+                try:
+                    query_cols = f"""
+                    SELECT COUNT(*) as col_count
+                    FROM `{PROJECT_ID}.{row['dataset']}`.INFORMATION_SCHEMA.COLUMNS
+                    WHERE table_name = @table_name
+                    """
+                    job_config = bigquery.QueryJobConfig(
+                        query_parameters=[
+                            bigquery.ScalarQueryParameter("table_name", "STRING", row['table_name'])
+                        ]
+                    )
+                    df_cols = bq_client.query(query_cols, job_config=job_config).to_dataframe()
+                    col_count = int(df_cols.iloc[0]['col_count']) if not df_cols.empty else 0
+                except:
+                    col_count = 0
+                
+                tables.append({
+                    'dataset': row['dataset'],
+                    'table_name': row['table_name'],
+                    'table_description': None,
+                    'job_insert_ts': None,
+                    'column_count': col_count,
+                    'description_status': status
+                })
         
         # Group tables by dataset
         datasets_dict = {}
