@@ -394,6 +394,29 @@ async def index(request: Request):
             # Fallback: empty dict, all tables will show as 'none' or 'meta_only'
             schema_dict = {}
         
+        # Get column counts for ALL tables in one batch query (optimization)
+        # This avoids N+1 query problem when tables don't have metadata
+        query_all_column_counts = f"""
+        SELECT 
+            table_schema as dataset,
+            table_name,
+            COUNT(*) as col_count
+        FROM `{PROJECT_ID}`.`region-eu`.INFORMATION_SCHEMA.COLUMNS
+        WHERE table_schema NOT IN ('INFORMATION_SCHEMA', '_script')
+        AND NOT REGEXP_CONTAINS(table_name, r'_\\d{{6,8}}$')
+        GROUP BY table_schema, table_name
+        """
+        
+        try:
+            df_col_counts = bq_client.query(query_all_column_counts).to_dataframe()
+            column_count_dict = {}
+            for row in df_col_counts.to_dict("records"):
+                key = f"{row['dataset']}.{row['table_name']}"
+                column_count_dict[key] = int(row['col_count'])
+        except Exception as e:
+            logger.error(f"Error getting column counts: {e}")
+            column_count_dict = {}
+        
         # Merge: get all tables and add metadata if available
         tables = []
         for row in df_all.to_dict("records"):
@@ -422,22 +445,8 @@ async def index(request: Request):
                 })
             else:
                 # Table exists but has no metadata yet
-                # Get column count from INFORMATION_SCHEMA
-                try:
-                    query_cols = f"""
-                    SELECT COUNT(*) as col_count
-                    FROM `{PROJECT_ID}.{row['dataset']}`.INFORMATION_SCHEMA.COLUMNS
-                    WHERE table_name = @table_name
-                    """
-                    job_config = bigquery.QueryJobConfig(
-                        query_parameters=[
-                            bigquery.ScalarQueryParameter("table_name", "STRING", row['table_name'])
-                        ]
-                    )
-                    df_cols = bq_client.query(query_cols, job_config=job_config).to_dataframe()
-                    col_count = int(df_cols.iloc[0]['col_count']) if not df_cols.empty else 0
-                except:
-                    col_count = 0
+                # Use column count from batch query
+                col_count = column_count_dict.get(key, 0)
                 
                 tables.append({
                     'dataset': row['dataset'],
