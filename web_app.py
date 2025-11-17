@@ -638,10 +638,16 @@ async def generate_table_description(request: Request, dataset: str, table_name:
         # Get sample data
         sample_data = get_table_sample_data(bq_client, dataset, table_name, sample_percent=2, max_rows=5)
         sample_data_text = ""
+        sample_rows_count = 0
+        sample_columns_count = 0
+        sensitive_columns_count = sum(1 for _, row in df_cols.iterrows() if is_sensitive_name(row['column_name']))
+        
         if sample_data:
             formatted_samples = format_sample_data_for_prompt(sample_data, max_examples=3)
             if formatted_samples:
                 sample_data_text = f"\n\nSample data (first 3 rows):\n{formatted_samples}"
+                sample_rows_count = len(sample_data)
+                sample_columns_count = len(sample_data[0]) if sample_data else 0
         
         # Build prompt with masking
         table_fqn = f"{dataset}.{table_name}"
@@ -725,7 +731,25 @@ Write a professional, detailed description. Write ONLY the description, no pream
             "description": description,
             "cost": cost,
             "tokens": {"prompt": prompt_tokens, "completion": completion_tokens},
-            "saved": True
+            "saved": True,
+            "stats": {
+                "total_columns": len(df_cols),
+                "sensitive_columns": sensitive_columns_count,
+                "sample_rows": sample_rows_count,
+                "sample_columns": sample_columns_count,
+                "model": MODEL_NAME,
+                "prompt_length": len(prompt)
+            },
+            "steps": [
+                "✓ Получена информация о таблице",
+                f"✓ Найдено колонок: {len(df_cols)}",
+                f"✓ Получены sample данные: {sample_rows_count} строк" if sample_data else "⚠ Sample данные не получены (все колонки чувствительные)",
+                f"✓ Сформирован промпт ({len(prompt)} символов)",
+                f"✓ Отправлен запрос в OpenAI ({MODEL_NAME})",
+                f"✓ Получен ответ ({completion_tokens} токенов)",
+                "✓ Сохранено в мета-таблицу",
+                "✓ Обновлена BigQuery schema"
+            ]
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -895,7 +919,25 @@ Write ONLY the description, no preamble or extra text."""
             "description": description,
             "cost": cost,
             "tokens": {"prompt": prompt_tokens, "completion": completion_tokens},
-            "saved": True
+            "saved": True,
+            "stats": {
+                "column_name": column_name,
+                "data_type": data_type,
+                "is_sensitive": is_sensitive_col,
+                "sample_values_count": sample_values_count,
+                "model": MODEL_NAME,
+                "prompt_length": len(prompt)
+            },
+            "steps": [
+                "✓ Получена информация о колонке",
+                f"✓ Тип данных: {data_type}",
+                f"✓ Sample значений: {sample_values_count}" if sample_values_count > 0 else "⚠ Sample значения не получены (колонка чувствительная)" if is_sensitive_col else "⚠ Sample значения не найдены",
+                f"✓ Сформирован промпт ({len(prompt)} символов)",
+                f"✓ Отправлен запрос в OpenAI ({MODEL_NAME})",
+                f"✓ Получен ответ ({completion_tokens} токенов)",
+                "✓ Сохранено в мета-таблицу",
+                "✓ Обновлена BigQuery schema"
+            ]
         }
     except HTTPException:
         raise

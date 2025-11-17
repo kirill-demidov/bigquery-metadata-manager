@@ -308,7 +308,14 @@ async function generateTableDescription() {
     const tableName = pathParts[3];
     const url = `/api/table/${dataset}/${tableName}/generate-description`;
     
-    statusEl.textContent = 'Генерация...';
+    // Show detailed progress
+    let progressHtml = '<div style="margin-top: 10px; padding: 10px; background: #f0f0f0; border-radius: 4px; font-size: 12px;">';
+    progressHtml += '<strong>🔄 Процесс генерации:</strong><ul style="margin: 5px 0; padding-left: 20px;">';
+    progressHtml += '<li>Подключение к BigQuery...</li>';
+    progressHtml += '<li>Получение информации о таблице...</li>';
+    progressHtml += '</ul></div>';
+    
+    statusEl.innerHTML = progressHtml;
     statusEl.className = 'save-status';
     descriptionEl.disabled = true;
     
@@ -320,21 +327,53 @@ async function generateTableDescription() {
         if (response.ok) {
             const data = await response.json();
             descriptionEl.value = data.description;
-            statusEl.textContent = `✓ Сгенерировано ($${data.cost.toFixed(4)}, ${data.tokens.prompt + data.tokens.completion} токенов)`;
+            
+            // Show detailed success message with stats
+            let successHtml = '<div style="margin-top: 10px; padding: 10px; background: #e8f5e9; border-radius: 4px; font-size: 12px;">';
+            successHtml += '<strong>✅ Успешно сгенерировано!</strong><br>';
+            
+            if (data.steps) {
+                successHtml += '<div style="margin-top: 8px;"><strong>Этапы выполнения:</strong><ul style="margin: 5px 0; padding-left: 20px;">';
+                data.steps.forEach(step => {
+                    successHtml += `<li>${step}</li>`;
+                });
+                successHtml += '</ul></div>';
+            }
+            
+            if (data.stats) {
+                successHtml += '<div style="margin-top: 8px;"><strong>📊 Статистика:</strong><ul style="margin: 5px 0; padding-left: 20px;">';
+                successHtml += `<li>Всего колонок: ${data.stats.total_columns}</li>`;
+                if (data.stats.sensitive_columns > 0) {
+                    successHtml += `<li>Чувствительных колонок: ${data.stats.sensitive_columns}</li>`;
+                }
+                if (data.stats.sample_rows > 0) {
+                    successHtml += `<li>Sample строк: ${data.stats.sample_rows}</li>`;
+                    successHtml += `<li>Sample колонок: ${data.stats.sample_columns}</li>`;
+                }
+                successHtml += `<li>Модель: ${data.stats.model}</li>`;
+                successHtml += `<li>Длина промпта: ${data.stats.prompt_length} символов</li>`;
+                successHtml += '</ul></div>';
+            }
+            
+            successHtml += `<div style="margin-top: 8px;"><strong>💰 Стоимость:</strong> $${data.cost.toFixed(4)}`;
+            successHtml += ` (${data.tokens.prompt} промпт + ${data.tokens.completion} ответ = ${data.tokens.prompt + data.tokens.completion} токенов)</div>`;
+            successHtml += '</div>';
+            
+            statusEl.innerHTML = successHtml;
             statusEl.className = 'save-status';
             descriptionEl.disabled = false;
             
             setTimeout(() => {
-                statusEl.textContent = '';
-            }, 5000);
+                statusEl.innerHTML = '';
+            }, 15000); // Show for 15 seconds
         } else {
             const error = await response.json();
-            statusEl.textContent = '✗ Ошибка: ' + (error.detail || 'Неизвестная ошибка');
+            statusEl.innerHTML = `<div style="margin-top: 10px; padding: 10px; background: #ffebee; border-radius: 4px; color: #c62828;"><strong>✗ Ошибка:</strong> ${error.detail || 'Неизвестная ошибка'}</div>`;
             statusEl.className = 'save-status error';
             descriptionEl.disabled = false;
         }
     } catch (error) {
-        statusEl.textContent = '✗ Ошибка соединения';
+        statusEl.innerHTML = `<div style="margin-top: 10px; padding: 10px; background: #ffebee; border-radius: 4px; color: #c62828;"><strong>✗ Ошибка соединения:</strong> ${error.message}</div>`;
         statusEl.className = 'save-status error';
         descriptionEl.disabled = false;
     }
@@ -349,7 +388,8 @@ async function generateColumnDescription(dataset, tableName, columnName) {
     
     if (!textarea) return;
     
-    statusEl.textContent = 'Генерация...';
+    // Show progress
+    statusEl.innerHTML = '<div style="font-size: 11px; color: #666;">🔄 Генерация...</div>';
     statusEl.className = 'save-status';
     textarea.disabled = true;
     
@@ -364,21 +404,52 @@ async function generateColumnDescription(dataset, tableName, columnName) {
         if (response.ok) {
             const data = await response.json();
             textarea.value = data.description;
-            statusEl.textContent = `✓ Сгенерировано ($${data.cost.toFixed(4)})`;
+            
+            // Show detailed success message
+            let successHtml = '<div style="font-size: 11px; padding: 5px; background: #e8f5e9; border-radius: 3px; margin-top: 5px;">';
+            successHtml += '<strong>✅ Сгенерировано!</strong><br>';
+            
+            if (data.steps) {
+                successHtml += '<div style="margin-top: 5px; font-size: 10px;">';
+                data.steps.forEach((step, idx) => {
+                    if (idx < 3) { // Show first 3 steps
+                        successHtml += `${step}<br>`;
+                    }
+                });
+                if (data.steps.length > 3) {
+                    successHtml += `... и еще ${data.steps.length - 3} этапов<br>`;
+                }
+                successHtml += '</div>';
+            }
+            
+            if (data.stats) {
+                successHtml += `<div style="margin-top: 5px; font-size: 10px;">`;
+                successHtml += `Тип: ${data.stats.data_type}`;
+                if (data.stats.sample_values_count > 0) {
+                    successHtml += ` | Sample: ${data.stats.sample_values_count}`;
+                }
+                successHtml += ` | Модель: ${data.stats.model}`;
+                successHtml += '</div>';
+            }
+            
+            successHtml += `<div style="margin-top: 5px; font-size: 10px; font-weight: bold;">💰 $${data.cost.toFixed(4)} (${data.tokens.prompt + data.tokens.completion} токенов)</div>`;
+            successHtml += '</div>';
+            
+            statusEl.innerHTML = successHtml;
             statusEl.className = 'save-status';
             textarea.disabled = false;
             
             setTimeout(() => {
-                statusEl.textContent = '';
-            }, 5000);
+                statusEl.innerHTML = '';
+            }, 12000); // Show for 12 seconds
         } else {
             const error = await response.json();
-            statusEl.textContent = '✗ Ошибка: ' + (error.detail || 'Неизвестная ошибка');
+            statusEl.innerHTML = `<div style="font-size: 11px; padding: 5px; background: #ffebee; border-radius: 3px; color: #c62828;"><strong>✗ Ошибка:</strong> ${error.detail || 'Неизвестная ошибка'}</div>`;
             statusEl.className = 'save-status error';
             textarea.disabled = false;
         }
     } catch (error) {
-        statusEl.textContent = '✗ Ошибка соединения';
+        statusEl.innerHTML = `<div style="font-size: 11px; padding: 5px; background: #ffebee; border-radius: 3px; color: #c62828;"><strong>✗ Ошибка соединения:</strong> ${error.message}</div>`;
         statusEl.className = 'save-status error';
         textarea.disabled = false;
     }
