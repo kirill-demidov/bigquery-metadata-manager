@@ -82,8 +82,6 @@ app.add_middleware(
     https_only=False
 )
 
-logger = logging.getLogger(__name__)
-
 def is_sensitive_name(name):
     """Проверка, является ли имя чувствительным"""
     if not name:
