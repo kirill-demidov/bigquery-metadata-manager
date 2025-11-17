@@ -1001,9 +1001,13 @@ async def generate_column_description(
         
         data_type = df_type.iloc[0]['data_type']
         
+        # Check if column is sensitive
+        is_sensitive_col = is_sensitive_name(column_name)
+        
         # Get sample values (only if column is not sensitive)
         sample_values_text = ""
-        if not is_sensitive_name(column_name):
+        sample_values_count = 0
+        if not is_sensitive_col:
             try:
                 table_ref = bq_client.get_table(f"{PROJECT_ID}.{dataset}.{table_name}")
                 if table_ref.table_type not in ["VIEW", "MATERIALIZED_VIEW"]:
@@ -1033,6 +1037,7 @@ async def generate_column_description(
                             masked_values.append(str(masked_v)[:50])
                     if masked_values:
                         sample_values_text = f"\nSample values: {', '.join(masked_values)}"
+                        sample_values_count = len(masked_values)
             except Exception:
                 pass  # Continue without sample values
         else:
