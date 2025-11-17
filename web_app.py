@@ -569,12 +569,11 @@ async def table_detail(request: Request, dataset: str, table_name: str, user: di
         
         df_columns_meta = bq_client.query(query_columns, job_config=job_config).to_dataframe()
         
-        # Get columns from BigQuery schema
+        # Get columns from BigQuery schema (INFORMATION_SCHEMA.COLUMNS doesn't have description field)
         query_bq_columns = f"""
         SELECT 
             column_name,
-            data_type,
-            description as generated_description
+            data_type
         FROM `{PROJECT_ID}.{dataset}.INFORMATION_SCHEMA.COLUMNS`
         WHERE table_name = @table_name
         ORDER BY column_name
@@ -585,6 +584,14 @@ async def table_detail(request: Request, dataset: str, table_name: str, user: di
                 bigquery.ScalarQueryParameter("table_name", "STRING", table_name)
             ]
         )).to_dataframe()
+        
+        # Get column descriptions from table schema (using get_table API)
+        bq_column_descriptions = {}
+        try:
+            for field in table_ref.schema:
+                bq_column_descriptions[field.name] = (field.description or "").strip()
+        except Exception as e:
+            logger.warning(f"Could not get column descriptions from table schema: {e}")
         
         # Merge columns: use metadata if available, otherwise use BigQuery schema
         columns_dict = {}
@@ -601,12 +608,20 @@ async def table_detail(request: Request, dataset: str, table_name: str, user: di
         for _, row in df_bq_columns.iterrows():
             col_name = row['column_name']
             if col_name not in columns_dict:
+                # Get description from BigQuery schema if available
+                bq_desc = bq_column_descriptions.get(col_name)
                 columns_dict[col_name] = {
                     'column_name': col_name,
                     'data_type': row.get('data_type', ''),
-                    'generated_description': row.get('generated_description'),
+                    'generated_description': bq_desc if bq_desc else None,
                     'job_insert_ts': None
                 }
+            else:
+                # If column is in metadata but has no description, try to get from BigQuery schema
+                if not columns_dict[col_name].get('generated_description'):
+                    bq_desc = bq_column_descriptions.get(col_name)
+                    if bq_desc:
+                        columns_dict[col_name]['generated_description'] = bq_desc
         
         columns = list(columns_dict.values())
         
