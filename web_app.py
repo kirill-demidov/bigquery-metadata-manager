@@ -20,6 +20,10 @@ import logging
 
 from auth import oauth, require_auth, get_user_bigquery_client, get_current_user
 
+# Initialize logger first
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Configuration
 PROJECT_ID = "guns-and-gangs"
 METADATA_DATASET_ID = "analytics_280581623"
