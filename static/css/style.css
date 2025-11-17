@@ -232,6 +232,10 @@ header h1 {
 .table-name {
     font-weight: 600;
     color: #1a73e8;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    max-width: 300px;
+    white-space: normal;
 }
 
 .description {
