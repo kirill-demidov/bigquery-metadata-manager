@@ -53,8 +53,14 @@ OPENAI_PRICING = {
 }
 
 if OPENAI_API_KEY:
-    openai_client = OpenAI(api_key=OPENAI_API_KEY)
+    try:
+        openai_client = OpenAI(api_key=OPENAI_API_KEY)
+        logger.info(f"OpenAI client initialized successfully with model {MODEL_NAME}")
+    except Exception as e:
+        logger.error(f"Failed to initialize OpenAI client: {e}")
+        openai_client = None
 else:
+    logger.warning("OPENAI_API_KEY not found in environment variables")
     openai_client = None
 
 # Initialize
@@ -732,9 +738,11 @@ async def update_column_description(
 async def generate_table_description(request: Request, dataset: str, table_name: str, user: dict = Depends(require_auth)):
     """Generate table description using OpenAI with sample data"""
     if not openai_client:
+        logger.error("OpenAI client not initialized - OPENAI_API_KEY missing or invalid")
         raise HTTPException(status_code=500, detail="OpenAI API key not configured")
     
     try:
+        logger.info(f"Generating description for table {dataset}.{table_name}")
         bq_client = get_bq_client(request)
         
         # Get table columns
@@ -789,14 +797,19 @@ The description should explain:
 Write a professional, detailed description. Write ONLY the description, no preamble."""
         
         # Call OpenAI
-        resp = openai_client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.6,
-            max_tokens=300
-        )
-        
-        description = resp.choices[0].message.content.strip()
+        logger.info(f"Calling OpenAI API with model {MODEL_NAME}, prompt length: {len(prompt)}")
+        try:
+            resp = openai_client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.6,
+                max_tokens=300
+            )
+            description = resp.choices[0].message.content.strip()
+            logger.info(f"OpenAI API call successful, received description length: {len(description)}")
+        except Exception as e:
+            logger.error(f"OpenAI API call failed: {e}")
+            raise HTTPException(status_code=500, detail=f"OpenAI API error: {str(e)}")
         
         # Calculate cost
         prompt_tokens = resp.usage.prompt_tokens
@@ -881,9 +894,11 @@ async def generate_column_description(
 ):
     """Generate column description using OpenAI with sample values"""
     if not openai_client:
+        logger.error("OpenAI client not initialized - OPENAI_API_KEY missing or invalid")
         raise HTTPException(status_code=500, detail="OpenAI API key not configured")
     
     try:
+        logger.info(f"Generating description for column {dataset}.{table_name}.{column_name}")
         bq_client = get_bq_client(request)
         
         # Get column data type
@@ -963,14 +978,19 @@ The description should:
 Write ONLY the description, no preamble or extra text."""
         
         # Call OpenAI
-        resp = openai_client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.5,
-            max_tokens=200
-        )
-        
-        description = resp.choices[0].message.content.strip()
+        logger.info(f"Calling OpenAI API with model {MODEL_NAME}, prompt length: {len(prompt)}")
+        try:
+            resp = openai_client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.5,
+                max_tokens=200
+            )
+            description = resp.choices[0].message.content.strip()
+            logger.info(f"OpenAI API call successful, received description length: {len(description)}")
+        except Exception as e:
+            logger.error(f"OpenAI API call failed: {e}")
+            raise HTTPException(status_code=500, detail=f"OpenAI API error: {str(e)}")
         
         # Calculate cost
         prompt_tokens = resp.usage.prompt_tokens
