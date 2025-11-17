@@ -363,31 +363,36 @@ async def index(request: Request):
             metadata_dict[key] = row
         
         # Get table descriptions from BigQuery schema
-        # Use get_table().description API (same as main.py does) for accurate description retrieval
-        # This is more reliable than TABLE_OPTIONS for getting actual table descriptions
-        # We'll get descriptions for tables that have metadata first, then batch check others if needed
-        schema_dict = {}
+        # Use TABLE_OPTIONS query for efficiency (batch query instead of individual get_table calls)
+        # This is much faster than calling get_table() for each table
+        # According to: https://docs.cloud.google.com/bigquery/docs/information-schema-tables
+        query_schema_descriptions = f"""
+        SELECT 
+            t.table_schema as dataset,
+            t.table_name,
+            TRIM(CAST(o.option_value AS STRING)) as table_description
+        FROM `{PROJECT_ID}`.`region-eu`.INFORMATION_SCHEMA.TABLES t
+        LEFT JOIN `{PROJECT_ID}`.`region-eu`.INFORMATION_SCHEMA.TABLE_OPTIONS o
+            ON o.table_catalog = t.table_catalog
+            AND o.table_schema = t.table_schema
+            AND o.table_name = t.table_name
+            AND o.option_name = 'description'
+        WHERE t.table_schema NOT IN ('INFORMATION_SCHEMA', '_script')
+        AND NOT REGEXP_CONTAINS(t.table_name, r'_\\d{{6,8}}$')
+        """
         
-        # For tables that have metadata, check their schema descriptions
-        # For efficiency, we'll check descriptions only for tables we're processing
-        unique_tables = set()
-        for row in df_all.to_dict("records"):
-            key = f"{row['dataset']}.{row['table_name']}"
-            unique_tables.add((row['dataset'], row['table_name']))
-        
-        # Get descriptions using get_table API (same approach as main.py)
-        # This is more accurate than TABLE_OPTIONS
-        for dataset, table_name in unique_tables:
-            try:
-                table_ref = bq_client.get_table(f"{PROJECT_ID}.{dataset}.{table_name}")
-                desc = (table_ref.description or "").strip()
-                key = f"{dataset}.{table_name}"
-                schema_dict[key] = desc if desc else None
-            except Exception as e:
-                # If table doesn't exist or can't be accessed, skip it
-                logger.debug(f"Could not get description for {dataset}.{table_name}: {e}")
-                key = f"{dataset}.{table_name}"
-                schema_dict[key] = None
+        try:
+            df_schema = bq_client.query(query_schema_descriptions).to_dataframe()
+            schema_dict = {}
+            for row in df_schema.to_dict("records"):
+                key = f"{row['dataset']}.{row['table_name']}"
+                desc = row.get('table_description')
+                # Only consider non-empty descriptions
+                schema_dict[key] = desc if desc and len(str(desc).strip()) > 0 else None
+        except Exception as e:
+            logger.error(f"Error getting schema descriptions: {e}")
+            # Fallback: empty dict, all tables will show as 'none' or 'meta_only'
+            schema_dict = {}
         
         # Merge: get all tables and add metadata if available
         tables = []
