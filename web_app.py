@@ -326,12 +326,13 @@ async def index(request: Request):
         # Get ALL tables from BigQuery INFORMATION_SCHEMA (not just from metadata table)
         # This ensures we show all tables, even if they don't have descriptions yet
         # Exclude sharded tables with suffixes _YYYYMMDD or _YYMMDD
+        # Use region-eu scope (same as main.py uses LOCATION_SCOPE = "region-eu")
         query_all_tables = f"""
         SELECT 
             table_schema as dataset,
             table_name,
             table_type
-        FROM `{PROJECT_ID}`.INFORMATION_SCHEMA.TABLES
+        FROM `{PROJECT_ID}`.`region-eu`.INFORMATION_SCHEMA.TABLES
         WHERE table_schema NOT IN ('INFORMATION_SCHEMA', '_script')
         AND NOT REGEXP_CONTAINS(table_name, r'_\\d{{6,8}}$')
         ORDER BY table_schema, table_name
@@ -369,7 +370,7 @@ async def index(request: Request):
             table_schema as dataset,
             table_name,
             table_description
-        FROM `{PROJECT_ID}`.INFORMATION_SCHEMA.TABLES
+        FROM `{PROJECT_ID}`.`region-eu`.INFORMATION_SCHEMA.TABLES
         WHERE table_schema NOT IN ('INFORMATION_SCHEMA', '_script')
         AND NOT REGEXP_CONTAINS(table_name, r'_\\d{{6,8}}$')
         """
