@@ -139,12 +139,14 @@ header h1 {
 
 .dataset-content {
     padding: 0;
+    overflow-x: auto;
 }
 
 .dataset-content .tables-table {
     margin: 0;
     border-radius: 0;
     box-shadow: none;
+    min-width: 100%;
 }
 
 .section {
@@ -226,6 +228,20 @@ header h1 {
 
 .description {
     max-width: 400px;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.tables-table th:last-child,
+.tables-table td:last-child {
+    position: sticky;
+    right: 0;
+    background: white;
+    z-index: 10;
+}
+
+.tables-table tr:hover td:last-child {
+    background: #f8f9fa;
 }
 
 .no-desc {
@@ -298,6 +314,9 @@ header h1 {
 
 .actions {
     white-space: nowrap;
+    min-width: 100px;
+    width: 100px;
+    text-align: center;
 }
 
 .btn {
