@@ -515,7 +515,16 @@ async def table_detail(request: Request, dataset: str, table_name: str, user: di
         bq_client = get_bq_client(request)
         user_email = user.get('email') if user else None
         
-        # Get table description
+        # First, check if table exists in BigQuery
+        try:
+            table_ref = bq_client.get_table(f"{PROJECT_ID}.{dataset}.{table_name}")
+            table_exists_in_bq = True
+            bq_table_description = (table_ref.description or "").strip()
+        except Exception as e:
+            logger.error(f"Table {dataset}.{table_name} not found in BigQuery: {e}")
+            raise HTTPException(status_code=404, detail=f"Table {dataset}.{table_name} not found in BigQuery")
+        
+        # Get table description from metadata table (if exists)
         query_table = f"""
         SELECT dataset, table_name, table_description, job_insert_ts
         FROM `{PROJECT_ID}.{METADATA_DATASET_ID}.table_descriptions`
@@ -531,12 +540,22 @@ async def table_detail(request: Request, dataset: str, table_name: str, user: di
         
         df_table = bq_client.query(query_table, job_config=job_config).to_dataframe()
         
+        # If table exists in BigQuery but not in metadata, create basic info from BigQuery
         if df_table.empty:
-            raise HTTPException(status_code=404, detail="Table not found")
+            # Table exists in BigQuery but not in metadata table
+            table_info = {
+                'dataset': dataset,
+                'table_name': table_name,
+                'table_description': bq_table_description if bq_table_description else None,
+                'job_insert_ts': None
+            }
+        else:
+            table_info = df_table.iloc[0].to_dict()
+            # Use BigQuery description if metadata description is empty
+            if not table_info.get('table_description') and bq_table_description:
+                table_info['table_description'] = bq_table_description
         
-        table_info = df_table.iloc[0].to_dict()
-        
-        # Get columns
+        # Get columns from metadata table
         query_columns = f"""
         SELECT 
             column_name,
@@ -548,12 +567,48 @@ async def table_detail(request: Request, dataset: str, table_name: str, user: di
         ORDER BY column_name
         """
         
-        bq_client = get_bq_client(request)
-        df_columns = bq_client.query(query_columns, job_config=job_config).to_dataframe()
-        columns = df_columns.to_dict("records")
+        df_columns_meta = bq_client.query(query_columns, job_config=job_config).to_dataframe()
         
-        # Get user email (Cloud Run IAM or local dev)
-        user_email = get_user_email(request)
+        # Get columns from BigQuery schema
+        query_bq_columns = f"""
+        SELECT 
+            column_name,
+            data_type,
+            description as generated_description
+        FROM `{PROJECT_ID}.{dataset}.INFORMATION_SCHEMA.COLUMNS`
+        WHERE table_name = @table_name
+        ORDER BY column_name
+        """
+        
+        df_bq_columns = bq_client.query(query_bq_columns, job_config=bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("table_name", "STRING", table_name)
+            ]
+        )).to_dataframe()
+        
+        # Merge columns: use metadata if available, otherwise use BigQuery schema
+        columns_dict = {}
+        for _, row in df_columns_meta.iterrows():
+            col_name = row['column_name']
+            columns_dict[col_name] = {
+                'column_name': col_name,
+                'data_type': row.get('data_type', ''),
+                'generated_description': row.get('generated_description'),
+                'job_insert_ts': row.get('job_insert_ts')
+            }
+        
+        # Add columns from BigQuery that are not in metadata
+        for _, row in df_bq_columns.iterrows():
+            col_name = row['column_name']
+            if col_name not in columns_dict:
+                columns_dict[col_name] = {
+                    'column_name': col_name,
+                    'data_type': row.get('data_type', ''),
+                    'generated_description': row.get('generated_description'),
+                    'job_insert_ts': None
+                }
+        
+        columns = list(columns_dict.values())
         
         return templates.TemplateResponse("table_detail.html", {
             "request": request,
@@ -565,6 +620,7 @@ async def table_detail(request: Request, dataset: str, table_name: str, user: di
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Error loading table detail: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
