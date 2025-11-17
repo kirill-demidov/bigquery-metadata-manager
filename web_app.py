@@ -855,31 +855,36 @@ async def generate_table_description(request: Request, dataset: str, table_name:
             for _, row in df_cols.head(20).iterrows()
         ])
         
-        prompt = f"""You are a data analyst. Analyze this BigQuery table and write a comprehensive description (3-4 sentences).
+        prompt = f"""You are a data analyst. Analyze this BigQuery table and write a comprehensive description.
 
 Table: {safe_table_fqn}
 Total columns: {len(df_cols)}
 Sample columns: {columns_list}{sample_data_text}
 
-The description should explain:
-1. What business data or events this table stores
-2. What is the primary purpose or use case
-3. Who would use this data and why
-4. Any important context about data granularity or scope
+IMPORTANT: Write a DETAILED description with AT LEAST 3-4 sentences (minimum 100 words). The description MUST explain:
 
-Write a professional, detailed description. Write ONLY the description, no preamble."""
+1. What business data or events this table stores (be specific about the domain/context)
+2. What is the primary purpose or use case (what problems does it solve?)
+3. Who would use this data and why (target audience and use cases)
+4. Any important context about data granularity, scope, or business rules
+
+Based on the table name "{safe_table_fqn}" and sample data, provide a thorough, professional description that helps users understand the table's purpose and content.
+
+Write ONLY the description, no preamble or meta-commentary. Minimum 3-4 sentences."""
         
         # Call OpenAI
         logger.info(f"Calling OpenAI API with model {MODEL_NAME}, prompt length: {len(prompt)}")
+        logger.info(f"Prompt for table {dataset}.{table_name}:\n{prompt}")
         try:
             resp = openai_client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.6,
-                max_tokens=300
+                temperature=0.7,
+                max_tokens=500
             )
             description = resp.choices[0].message.content.strip()
             logger.info(f"OpenAI API call successful, received description length: {len(description)}")
+            logger.info(f"Generated description: {description}")
         except Exception as e:
             logger.error(f"OpenAI API call failed: {e}")
             raise HTTPException(status_code=500, detail=f"OpenAI API error: {str(e)}")
@@ -951,7 +956,9 @@ Write a professional, detailed description. Write ONLY the description, no pream
                 f"✓ Получен ответ ({completion_tokens} токенов)",
                 "✓ Сохранено в мета-таблицу",
                 "✓ Обновлена BigQuery schema"
-            ]
+            ],
+            "columns_count": len(df_cols),
+            "can_generate_columns": True
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1151,6 +1158,216 @@ Write ONLY the description, no preamble or extra text."""
     except HTTPException:
         raise
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/table/{dataset}/{table_name}/generate-all-column-descriptions")
+async def generate_all_column_descriptions(
+    request: Request,
+    dataset: str,
+    table_name: str,
+    user: dict = Depends(require_auth)
+):
+    """Generate descriptions for all columns in a table using OpenAI"""
+    if not openai_client:
+        logger.error("OpenAI client not initialized - OPENAI_API_KEY missing or invalid")
+        raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+    
+    try:
+        logger.info(f"Generating descriptions for all columns in {dataset}.{table_name}")
+        bq_client = get_bq_client(request)
+        
+        # Get all columns
+        query_cols = f"""
+        SELECT column_name, data_type
+        FROM `{PROJECT_ID}.{dataset}.INFORMATION_SCHEMA.COLUMNS`
+        WHERE table_name = @table_name
+        ORDER BY column_name
+        """
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("table_name", "STRING", table_name)
+            ]
+        )
+        df_cols = bq_client.query(query_cols, job_config=job_config).to_dataframe()
+        
+        if df_cols.empty:
+            raise HTTPException(status_code=404, detail="No columns found")
+        
+        # Get existing column descriptions from metadata
+        query_existing = f"""
+        SELECT column_name, generated_description
+        FROM `{PROJECT_ID}.{METADATA_DATASET_ID}.column_descriptions`
+        WHERE dataset = @dataset_id AND table_name = @table_name
+        """
+        job_config_existing = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("dataset_id", "STRING", dataset),
+                bigquery.ScalarQueryParameter("table_name", "STRING", table_name)
+            ]
+        )
+        df_existing = bq_client.query(query_existing, job_config=job_config_existing).to_dataframe()
+        existing_descriptions = {}
+        if not df_existing.empty:
+            existing_descriptions = df_existing.set_index('column_name')['generated_description'].to_dict()
+        
+        # Filter columns that need descriptions (skip sensitive columns and those with existing descriptions)
+        columns_to_generate = []
+        for _, row in df_cols.iterrows():
+            col_name = row['column_name']
+            # Skip sensitive columns
+            if is_sensitive_name(col_name):
+                logger.info(f"Skipping sensitive column: {col_name}")
+                continue
+            # Skip columns that already have descriptions
+            if col_name in existing_descriptions and existing_descriptions[col_name]:
+                logger.info(f"Skipping column with existing description: {col_name}")
+                continue
+            columns_to_generate.append({
+                'column_name': col_name,
+                'data_type': row['data_type']
+            })
+        
+        if not columns_to_generate:
+            return {
+                "status": "success",
+                "message": "All columns already have descriptions or are sensitive",
+                "generated_count": 0,
+                "skipped_count": len(df_cols)
+            }
+        
+        # Generate descriptions for each column
+        generated_descriptions = []
+        total_cost = 0.0
+        errors = []
+        
+        for col_info in columns_to_generate:
+            col_name = col_info['column_name']
+            data_type = col_info['data_type']
+            
+            try:
+                # Get sample values
+                sample_values_text = ""
+                try:
+                    table_ref = bq_client.get_table(f"{PROJECT_ID}.{dataset}.{table_name}")
+                    if table_ref.table_type not in ["VIEW", "MATERIALIZED_VIEW"]:
+                        query_values = f"""
+                        SELECT DISTINCT `{col_name}`
+                        FROM `{PROJECT_ID}.{dataset}.{table_name}`
+                        TABLESAMPLE SYSTEM (2 PERCENT)
+                        WHERE `{col_name}` IS NOT NULL
+                        LIMIT 5
+                        """
+                    else:
+                        query_values = f"""
+                        SELECT DISTINCT `{col_name}`
+                        FROM `{PROJECT_ID}.{dataset}.{table_name}`
+                        WHERE `{col_name}` IS NOT NULL
+                        LIMIT 5
+                        """
+                    
+                    df_values = bq_client.query(query_values, job_config=bigquery.QueryJobConfig(use_legacy_sql=False)).to_dataframe()
+                    
+                    if not df_values.empty:
+                        masked_values = []
+                        for v in df_values[col_name].head(5).tolist():
+                            if v is not None:
+                                masked_v = mask_sensitive_value(v, col_name)
+                                masked_values.append(str(masked_v)[:50])
+                        if masked_values:
+                            sample_values_text = f"\nSample values: {', '.join(masked_values)}"
+                except Exception:
+                    pass
+                
+                # Build prompt
+                table_fqn = f"{dataset}.{table_name}"
+                safe_table_fqn = mask_table_name(table_fqn)
+                safe_column_name = col_name
+                
+                prompt = f"""You are a data analyst. Write a detailed, professional description (1-2 sentences) for this database column.
+
+Table: {safe_table_fqn}
+Column: {safe_column_name}
+Data Type: {data_type}{sample_values_text}
+
+The description should:
+- Explain what data this column stores
+- Clarify its business purpose or use case
+- Be specific and informative
+- Use professional terminology
+
+Write ONLY the description, no preamble or extra text."""
+                
+                # Call OpenAI
+                resp = openai_client.chat.completions.create(
+                    model=MODEL_NAME,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.5,
+                    max_tokens=200
+                )
+                description = resp.choices[0].message.content.strip()
+                
+                # Calculate cost
+                prompt_tokens = resp.usage.prompt_tokens
+                completion_tokens = resp.usage.completion_tokens
+                cost = calculate_cost(MODEL_NAME, prompt_tokens, completion_tokens)
+                total_cost += cost
+                
+                generated_descriptions.append({
+                    'dataset': dataset,
+                    'table_name': table_name,
+                    'column_name': col_name,
+                    'data_type': data_type,
+                    'generated_description': description,
+                    'job_insert_ts': datetime.now()
+                })
+                
+                logger.info(f"Generated description for {col_name}: {description[:50]}...")
+                
+            except Exception as e:
+                logger.error(f"Error generating description for {col_name}: {e}")
+                errors.append({"column": col_name, "error": str(e)})
+        
+        # Save all generated descriptions to metadata table
+        if generated_descriptions:
+            tmp_cols = f"{PROJECT_ID}.{METADATA_DATASET_ID}._tmp_col_desc_batch_{int(datetime.now().timestamp()*1000)}"
+            try:
+                job = bq_client.load_table_from_dataframe(
+                    pd.DataFrame(generated_descriptions),
+                    tmp_cols,
+                    job_config=bigquery.LoadJobConfig(write_disposition="WRITE_TRUNCATE")
+                )
+                job.result()
+                
+                merge_sql = f"""
+                MERGE `{PROJECT_ID}.{METADATA_DATASET_ID}.column_descriptions` T
+                USING `{tmp_cols}` S
+                ON  T.dataset = S.dataset 
+                AND T.table_name = S.table_name 
+                AND T.column_name = S.column_name
+                WHEN MATCHED THEN
+                  UPDATE SET 
+                    T.generated_description = S.generated_description,
+                    T.job_insert_ts = CURRENT_TIMESTAMP()
+                WHEN NOT MATCHED THEN
+                  INSERT (dataset, table_name, column_name, data_type, generated_description, job_insert_ts)
+                  VALUES (S.dataset, S.table_name, S.column_name, S.data_type, S.generated_description, CURRENT_TIMESTAMP());
+                """
+                bq_client.query(merge_sql).result()
+            finally:
+                bq_client.delete_table(tmp_cols, not_found_ok=True)
+        
+        return {
+            "status": "success",
+            "generated_count": len(generated_descriptions),
+            "skipped_count": len(df_cols) - len(columns_to_generate),
+            "total_cost": total_cost,
+            "errors": errors if errors else None
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating column descriptions: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
