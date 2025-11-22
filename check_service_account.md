@@ -4,7 +4,8 @@
 
 ### 1. Узнать номер проекта
 ```bash
-PROJECT_NUMBER=$(gcloud projects describe guns-and-gangs --format='value(projectNumber)')
+PROJECT_ID="your-project-id"
+PROJECT_NUMBER=$(gcloud projects describe ${PROJECT_ID} --format='value(projectNumber)')
 echo "Project Number: $PROJECT_NUMBER"
 ```
 
@@ -26,11 +27,12 @@ gcloud run services describe tables-and-columns-description-web \
 
 ### 3. Проверить права сервисного аккаунта на BigQuery
 ```bash
-PROJECT_NUMBER=$(gcloud projects describe guns-and-gangs --format='value(projectNumber)')
+PROJECT_ID="your-project-id"
+PROJECT_NUMBER=$(gcloud projects describe ${PROJECT_ID} --format='value(projectNumber)')
 SA_EMAIL="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 
 # Проверить IAM роли
-gcloud projects get-iam-policy guns-and-gangs \
+gcloud projects get-iam-policy ${PROJECT_ID} \
   --flatten="bindings[].members" \
   --filter="bindings.members:${SA_EMAIL}" \
   --format="table(bindings.role)"
@@ -38,7 +40,8 @@ gcloud projects get-iam-policy guns-and-gangs \
 
 ### 4. Проверить права на Secret Manager
 ```bash
-gcloud secrets get-iam-policy analytics_table_desc_ai_creator \
+SECRET_NAME="your-secret-name"  # например, openai-api-key
+gcloud secrets get-iam-policy ${SECRET_NAME} \
   --flatten="bindings[].members" \
   --filter="bindings.members:${SA_EMAIL}" \
   --format="table(bindings.role)"
@@ -49,30 +52,35 @@ gcloud secrets get-iam-policy analytics_table_desc_ai_creator \
 Для лучшей безопасности рекомендуется создать отдельный сервисный аккаунт:
 
 ```bash
+PROJECT_ID="your-project-id"
+SECRET_NAME="your-secret-name"  # например, openai-api-key
+
 # Создать сервисный аккаунт
 gcloud iam service-accounts create bq-metadata-generator \
   --display-name="BigQuery Metadata Generator" \
-  --description="Service account for BigQuery metadata generation"
+  --description="Service account for BigQuery metadata generation" \
+  --project=${PROJECT_ID}
 
-SA_EMAIL="bq-metadata-generator@guns-and-gangs.iam.gserviceaccount.com"
+SA_EMAIL="bq-metadata-generator@${PROJECT_ID}.iam.gserviceaccount.com"
 
 # Назначить права на BigQuery
-gcloud projects add-iam-policy-binding guns-and-gangs \
+gcloud projects add-iam-policy-binding ${PROJECT_ID} \
   --member="serviceAccount:${SA_EMAIL}" \
   --role="roles/bigquery.dataEditor"
 
-gcloud projects add-iam-policy-binding guns-and-gangs \
+gcloud projects add-iam-policy-binding ${PROJECT_ID} \
   --member="serviceAccount:${SA_EMAIL}" \
   --role="roles/bigquery.metadataViewer"
 
-gcloud projects add-iam-policy-binding guns-and-gangs \
+gcloud projects add-iam-policy-binding ${PROJECT_ID} \
   --member="serviceAccount:${SA_EMAIL}" \
   --role="roles/bigquery.jobUser"
 
 # Назначить права на Secret Manager
-gcloud secrets add-iam-policy-binding analytics_table_desc_ai_creator \
+gcloud secrets add-iam-policy-binding ${SECRET_NAME} \
   --member="serviceAccount:${SA_EMAIL}" \
-  --role="roles/secretmanager.secretAccessor"
+  --role="roles/secretmanager.secretAccessor" \
+  --project=${PROJECT_ID}
 ```
 
 Затем обновить Cloud Run Job и Service:

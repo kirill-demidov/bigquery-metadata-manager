@@ -40,7 +40,17 @@ Thumbs.db
 # Environment variables
 .env
 .env.local
+.env.*.local
 
 # Logs
 *.log
 
+# Google Cloud credentials
+*.json
+service-account-key.json
+gcp-key.json
+
+# Secrets
+secrets/
+*.pem
+*.key

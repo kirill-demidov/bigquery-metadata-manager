@@ -25,8 +25,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Configuration
-PROJECT_ID = "guns-and-gangs"
-METADATA_DATASET_ID = "analytics_280581623"
+PROJECT_ID = os.getenv("PROJECT_ID", os.getenv("GOOGLE_CLOUD_PROJECT", ""))
+METADATA_DATASET_ID = os.getenv("METADATA_DATASET_ID", "metadata")
 
 # Security: Sensitive data patterns for masking
 SENSITIVE_PATTERNS = [

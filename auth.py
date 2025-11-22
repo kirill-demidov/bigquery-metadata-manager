@@ -14,10 +14,7 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 SECRET_KEY = os.getenv("SECRET_KEY", "change-this-secret-key-in-production")
 REDIRECT_URI = os.getenv("REDIRECT_URI", "http://localhost:8081/auth/callback")
 ALLOWED_DOMAINS = os.getenv("ALLOWED_DOMAINS", "").split(",") if os.getenv("ALLOWED_DOMAINS") else []
-# Allow oneupgames.gg domain by default
-if not ALLOWED_DOMAINS:
-    ALLOWED_DOMAINS = ["oneupgames.gg"]
-PROJECT_ID = os.getenv("PROJECT_ID", "guns-and-gangs")
+PROJECT_ID = os.getenv("PROJECT_ID", os.getenv("GOOGLE_CLOUD_PROJECT", ""))
 
 # OAuth Scopes
 GOOGLE_SCOPES = [

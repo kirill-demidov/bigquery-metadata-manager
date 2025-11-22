@@ -4,10 +4,6 @@
 
 **BigQuery Metadata Manager** — веб-приложение для управления метаданными BigQuery таблиц и колонок. Сервис предоставляет удобный интерфейс для просмотра, редактирования и автоматической генерации описаний таблиц и колонок с использованием OpenAI API.
 
-**URL:** https://tables-and-columns-description-web-gccuajx7eq-ew.a.run.app
-
-**Проект:** guns-and-gangs  
-**Регион:** europe-west1  
 **Платформа:** Google Cloud Run
 
 ---
@@ -37,8 +33,8 @@
    - Генерация описаний по запросу пользователя (on-demand)
 
 2. **Хранилище метаданных**
-   - `analytics_280581623.table_descriptions` — описания таблиц
-   - `analytics_280581623.column_descriptions` — описания колонок
+   - `{PROJECT_ID}.{METADATA_DATASET_ID}.table_descriptions` — описания таблиц
+   - `{PROJECT_ID}.{METADATA_DATASET_ID}.column_descriptions` — описания колонок
 
 ### Технологический стек
 
@@ -61,7 +57,7 @@
 
 ### Требования к доступу
 
-- **Домен:** Доступ ограничен пользователям домена `oneupgames.gg`
+- **Домен:** Доступ может быть ограничен пользователям определенных доменов (настраивается через переменную окружения `ALLOWED_DOMAINS`)
 - **Авторизация:** Пользователи должны войти через Google аккаунт
 - **Права BigQuery:** Запросы выполняются от имени авторизованного пользователя (нужны соответствующие IAM роли)
 
@@ -390,7 +386,7 @@ python web_app.py
 
 3. **Аутентификация**
    - Google OAuth 2.0
-   - Ограничение доступа по домену (oneupgames.gg)
+   - Ограничение доступа по домену (настраивается через `ALLOWED_DOMAINS`)
    - Сессии с защищенным ключом
    - Все API endpoints защищены через `require_auth` dependency
 
@@ -422,7 +418,6 @@ python web_app.py
 
 - **README.md** — Основная документация проекта
 - **SECURITY.md** — Детальное описание мер безопасности
-- **GitLab репозиторий:** oneupgames/data-engineering/tables_and_columns_description
 
 ---
 

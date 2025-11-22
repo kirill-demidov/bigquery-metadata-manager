@@ -3,7 +3,7 @@
 BigQuery Metadata Descriptions Generator with OpenAI (project-wide, region-eu)
 
 Что делает:
-1) Ищет ВСЕ таблицы/вью без описания во всём проекте guns-and-gangs в region-eu
+1) Ищет ВСЕ таблицы/вью без описания во всём проекте BigQuery в указанном регионе
    (исключая шарды _YYYYMMDD / _YYMMDD).
 2) Для каждой таблицы сверяет фактические описания в BigQuery и записи в мета-таблицах.
    - Если в мета всё есть, а в BQ утеряно — восстанавливает в BQ из мета (без OpenAI).
@@ -15,8 +15,8 @@ BigQuery Metadata Descriptions Generator with OpenAI (project-wide, region-eu)
 4) (Опционально) Обновляет описания в самой BigQuery-схеме (таблица + колонки).
 
 Требуется наличие таблиц:
-  guns-and-gangs.analytics_280581623.table_descriptions(dataset, table_name, table_description, job_insert_ts TIMESTAMP)
-  guns-and-gangs.analytics_280581623.column_descriptions(dataset, table_name, column_name, data_type, generated_description, job_insert_ts TIMESTAMP)
+  {PROJECT_ID}.{METADATA_DATASET_ID}.table_descriptions(dataset, table_name, table_description, job_insert_ts TIMESTAMP)
+  {PROJECT_ID}.{METADATA_DATASET_ID}.column_descriptions(dataset, table_name, column_name, data_type, generated_description, job_insert_ts TIMESTAMP)
 """
 
 from openai import OpenAI
@@ -174,9 +174,11 @@ def should_process_table(dataset_id, table_name):
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY environment variable is required")
-PROJECT_ID = "guns-and-gangs"
-LOCATION_SCOPE = "region-eu"                  # region-us / region-europe-west1 и т.д.
-METADATA_DATASET_ID = "analytics_280581623"   # мета-таблицы уже существуют
+PROJECT_ID = os.getenv("PROJECT_ID", os.getenv("GOOGLE_CLOUD_PROJECT", ""))
+if not PROJECT_ID:
+    raise ValueError("PROJECT_ID or GOOGLE_CLOUD_PROJECT environment variable is required")
+LOCATION_SCOPE = os.getenv("LOCATION_SCOPE", "region-eu")  # region-us / region-europe-west1 и т.д.
+METADATA_DATASET_ID = os.getenv("METADATA_DATASET_ID", "metadata")
 TABLE_NAME = None  # Опционально: "<dataset>.<table>" чтобы принудительно обработать конкретную таблицу
 
 # Поведение синхронизации:
