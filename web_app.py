@@ -948,14 +948,14 @@ Write ONLY the description, no preamble or meta-commentary. Minimum 3-4 sentence
                 "prompt_length": len(prompt)
             },
             "steps": [
-                "✓ Получена информация о таблице",
-                f"✓ Найдено колонок: {len(df_cols)}",
-                f"✓ Получены sample данные: {sample_rows_count} строк" if sample_data else "⚠ Sample данные не получены (все колонки чувствительные)",
-                f"✓ Сформирован промпт ({len(prompt)} символов)",
-                f"✓ Отправлен запрос в OpenAI ({MODEL_NAME})",
-                f"✓ Получен ответ ({completion_tokens} токенов)",
-                "✓ Сохранено в мета-таблицу",
-                "✓ Обновлена BigQuery schema"
+                "✓ Got table information",
+                f"✓ Found columns: {len(df_cols)}",
+                f"✓ Got sample data: {sample_rows_count} rows" if sample_data else "⚠ Sample data not obtained (all columns are sensitive)",
+                f"✓ Formed prompt ({len(prompt)} characters)",
+                f"✓ Sent request to OpenAI ({MODEL_NAME})",
+                f"✓ Got response ({completion_tokens} tokens)",
+                "✓ Saved to metadata table",
+                "✓ Updated BigQuery schema"
             ],
             "columns_count": len(df_cols),
             "can_generate_columns": True
@@ -1150,14 +1150,14 @@ Write ONLY the description, no preamble or extra text."""
                 "prompt_length": len(prompt)
             },
             "steps": [
-                "✓ Получена информация о колонке",
-                f"✓ Тип данных: {data_type}",
-                f"✓ Sample значений: {sample_values_count}" if sample_values_count > 0 else "⚠ Sample значения не получены (колонка чувствительная)" if is_sensitive_col else "⚠ Sample значения не найдены",
-                f"✓ Сформирован промпт ({len(prompt)} символов)",
-                f"✓ Отправлен запрос в OpenAI ({MODEL_NAME})",
-                f"✓ Получен ответ ({completion_tokens} токенов)",
-                "✓ Сохранено в мета-таблицу",
-                "✓ Обновлена BigQuery schema"
+                "✓ Got column information",
+                f"✓ Data type: {data_type}",
+                f"✓ Sample values: {sample_values_count}" if sample_values_count > 0 else "⚠ Sample values not obtained (column is sensitive)" if is_sensitive_col else "⚠ Sample values not found",
+                f"✓ Formed prompt ({len(prompt)} characters)",
+                f"✓ Sent request to OpenAI ({MODEL_NAME})",
+                f"✓ Got response ({completion_tokens} tokens)",
+                "✓ Saved to metadata table",
+                "✓ Updated BigQuery schema"
             ]
         }
     except HTTPException:

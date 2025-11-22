@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,7 +9,7 @@
 <body>
     <div class="container">
         <header>
-            <a href="/" class="back-link">← Назад к списку</a>
+            <a href="/" class="back-link">← Back to list</a>
             <h1>{{ table.dataset }}.{{ table.table_name }}</h1>
             <p class="subtitle">
                 {% if user_email %}
@@ -23,37 +23,37 @@
 
         <!-- Table Description -->
         <div class="section">
-            <h2>Описание таблицы
+            <h2>Table Description
                 {% if not table.table_description %}
-                    <span class="no-desc-badge" style="margin-left: 10px; font-size: 14px;">⚠️ Нет описания</span>
+                    <span class="no-desc-badge" style="margin-left: 10px; font-size: 14px;">⚠️ No description</span>
                 {% endif %}
             </h2>
             <div class="description-editor">
                 <textarea id="tableDescription" rows="4" class="description-textarea">{{ table.table_description or '' }}</textarea>
                 <div style="margin-top: 10px;">
-                    <button onclick="saveTableDescription()" class="btn btn-primary">Сохранить описание таблицы</button>
+                    <button onclick="saveTableDescription()" class="btn btn-primary">Save table description</button>
                     <button onclick="showGenerateTableInfo()" class="btn btn-primary" style="background: #34a853; margin-left: 10px;">
-                        🤖 Сгенерировать через AI (с sample данными)
+                        🤖 Generate with AI (with sample data)
                     </button>
                     <span id="tableSaveStatus" class="save-status"></span>
                     <span id="tableGenerateStatus" class="save-status"></span>
                 </div>
             </div>
             {% if table.job_insert_ts %}
-            <p class="meta-info">Последнее обновление: {{ table.job_insert_ts.strftime('%Y-%m-%d %H:%M:%S') }}</p>
+            <p class="meta-info">Last updated: {{ table.job_insert_ts.strftime('%Y-%m-%d %H:%M:%S') }}</p>
             {% endif %}
         </div>
 
         <!-- Columns -->
         <div class="section">
-            <h2>Колонки ({{ columns|length }})</h2>
+            <h2>Columns ({{ columns|length }})</h2>
             
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                 <div class="search-box" style="flex: 1; margin-right: 15px;">
-                    <input type="text" id="columnSearch" placeholder="Поиск по колонке..." onkeyup="filterColumns()">
+                    <input type="text" id="columnSearch" placeholder="Search by column..." onkeyup="filterColumns()">
                 </div>
                 <button onclick="saveAllColumnDescriptions()" class="btn btn-primary" style="background: #1a73e8; white-space: nowrap;">
-                    💾 Сохранить все описания колонок
+                    💾 Save all column descriptions
                 </button>
             </div>
             <div id="saveAllStatus" class="save-status" style="margin-bottom: 10px;"></div>
@@ -61,10 +61,10 @@
             <table class="columns-table">
                 <thead>
                     <tr>
-                        <th>Колонка</th>
-                        <th>Тип данных</th>
-                        <th>Описание</th>
-                        <th>Действия</th>
+                        <th>Column</th>
+                        <th>Data Type</th>
+                        <th>Description</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody id="columnsBody">
@@ -86,13 +86,13 @@
                                 onclick="saveColumnDescription('{{ table.dataset }}', '{{ table.table_name }}', '{{ column.column_name }}')" 
                                 class="btn btn-small btn-primary"
                             >
-                                Сохранить
+                                Save
                             </button>
                             <button 
                                 onclick="showGenerateColumnInfo('{{ table.dataset }}', '{{ table.table_name }}', '{{ column.column_name }}')" 
                                 class="btn btn-small btn-primary"
                                 style="background: #34a853; margin-left: 5px;"
-                                title="Сгенерировать через AI с sample данными"
+                                title="Generate with AI using sample data"
                             >
                                 🤖 AI
                             </button>
@@ -105,23 +105,23 @@
 
             {% if columns|length == 0 %}
             <div class="empty-state">
-                <p>Колонки не найдены</p>
+                <p>No columns found</p>
             </div>
             {% endif %}
         </div>
     </div>
 
-    <!-- Modal для информации о генерации -->
+    <!-- Modal for generation information -->
     <div id="generateInfoModal" class="modal">
         <div class="modal-content">
             <span class="close" onclick="closeGenerateInfoModal()">&times;</span>
-            <h2>🤖 Генерация описания через AI</h2>
+            <h2>🤖 Generate Description with AI</h2>
             <div id="modalInfoContent">
-                <!-- Контент будет заполнен через JavaScript -->
+                <!-- Content will be filled via JavaScript -->
             </div>
             <div class="modal-actions">
-                <button onclick="closeGenerateInfoModal()" class="btn btn-primary" style="background: #666;">Отмена</button>
-                <button id="confirmGenerateBtn" onclick="confirmGenerate()" class="btn btn-primary" style="background: #34a853;">Продолжить генерацию</button>
+                <button onclick="closeGenerateInfoModal()" class="btn btn-primary" style="background: #666;">Cancel</button>
+                <button id="confirmGenerateBtn" onclick="confirmGenerate()" class="btn btn-primary" style="background: #34a853;">Continue Generation</button>
             </div>
         </div>
     </div>

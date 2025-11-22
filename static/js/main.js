@@ -87,7 +87,7 @@ async function saveTableDescription() {
     const tableName = pathParts[3];
     const url = `/api/table/${dataset}/${tableName}/description`;
     
-    statusEl.textContent = 'Сохранение...';
+    statusEl.textContent = 'Saving...';
     statusEl.className = 'save-status';
     
     try {
@@ -100,18 +100,18 @@ async function saveTableDescription() {
         });
         
         if (response.ok) {
-            statusEl.textContent = '✓ Сохранено';
+            statusEl.textContent = '✓ Saved';
             statusEl.className = 'save-status';
             setTimeout(() => {
                 statusEl.textContent = '';
             }, 3000);
         } else {
             const error = await response.json();
-            statusEl.textContent = '✗ Ошибка: ' + (error.detail || 'Неизвестная ошибка');
+            statusEl.textContent = '✗ Error: ' + (error.detail || 'Unknown error');
             statusEl.className = 'save-status error';
         }
     } catch (error) {
-        statusEl.textContent = '✗ Ошибка соединения';
+        statusEl.textContent = '✗ Connection error';
         statusEl.className = 'save-status error';
     }
 }
@@ -127,7 +127,7 @@ async function saveColumnDescription(dataset, tableName, columnName) {
     const description = textarea.value;
     const statusEl = document.getElementById(`status-${dataset}-${tableName}-${columnName}`);
     
-    statusEl.textContent = 'Сохранение...';
+    statusEl.textContent = 'Saving...';
     statusEl.className = 'save-status';
     
     try {
@@ -143,18 +143,18 @@ async function saveColumnDescription(dataset, tableName, columnName) {
         );
         
         if (response.ok) {
-            statusEl.textContent = '✓ Сохранено';
+            statusEl.textContent = '✓ Saved';
             statusEl.className = 'save-status';
             setTimeout(() => {
                 statusEl.textContent = '';
             }, 3000);
         } else {
             const error = await response.json();
-            statusEl.textContent = '✗ Ошибка: ' + (error.detail || 'Неизвестная ошибка');
+            statusEl.textContent = '✗ Error: ' + (error.detail || 'Unknown error');
             statusEl.className = 'save-status error';
         }
     } catch (error) {
-        statusEl.textContent = '✗ Ошибка соединения';
+        statusEl.textContent = '✗ Connection error';
         statusEl.className = 'save-status error';
     }
 }
@@ -171,7 +171,7 @@ async function saveAllColumnDescriptions() {
     );
     
     if (textareas.length === 0) {
-        alert('Нет колонок для сохранения');
+        alert('No columns to save');
         return;
     }
     
@@ -187,15 +187,15 @@ async function saveAllColumnDescriptions() {
     
     // Disable button and show progress
     saveButton.disabled = true;
-    saveButton.textContent = '💾 Сохранение...';
+    saveButton.textContent = '💾 Saving...';
     
     let savedCount = 0;
     let errorCount = 0;
     const errors = [];
     
     statusEl.innerHTML = `<div style="padding: 10px; background: #f0f0f0; border-radius: 4px; font-size: 12px;">
-        <strong>🔄 Сохранение описаний колонок...</strong><br>
-        <div id="saveProgress" style="margin-top: 5px;">Обработано: 0 / ${textareas.length}</div>
+        <strong>🔄 Saving column descriptions...</strong><br>
+        <div id="saveProgress" style="margin-top: 5px;">Processed: 0 / ${textareas.length}</div>
     </div>`;
     statusEl.className = 'save-status';
     
@@ -229,29 +229,29 @@ async function saveAllColumnDescriptions() {
                 // Update individual status
                 const individualStatus = document.getElementById(`status-${dataset}-${tableName}-${columnName}`);
                 if (individualStatus) {
-                    individualStatus.textContent = '✓ Сохранено';
+                    individualStatus.textContent = '✓ Saved';
                     individualStatus.className = 'save-status';
                 }
             } else {
                 errorCount++;
                 const error = await response.json();
-                errors.push(`${columnName}: ${error.detail || 'Неизвестная ошибка'}`);
+                errors.push(`${columnName}: ${error.detail || 'Unknown error'}`);
                 
                 // Update individual status
                 const individualStatus = document.getElementById(`status-${dataset}-${tableName}-${columnName}`);
                 if (individualStatus) {
-                    individualStatus.textContent = '✗ Ошибка';
+                    individualStatus.textContent = '✗ Error';
                     individualStatus.className = 'save-status error';
                 }
             }
         } catch (error) {
             errorCount++;
-            errors.push(`${columnName}: Ошибка соединения`);
+            errors.push(`${columnName}: Connection error`);
             
             // Update individual status
             const individualStatus = document.getElementById(`status-${dataset}-${tableName}-${columnName}`);
             if (individualStatus) {
-                individualStatus.textContent = '✗ Ошибка';
+                individualStatus.textContent = '✗ Error';
                 individualStatus.className = 'save-status error';
             }
         }
@@ -269,8 +269,8 @@ async function saveAllColumnDescriptions() {
     
     if (errorCount === 0) {
         statusEl.innerHTML = `<div style="padding: 10px; background: #e8f5e9; border-radius: 4px; font-size: 12px;">
-            <strong>✅ Успешно сохранено!</strong><br>
-            Сохранено описаний: ${savedCount} из ${textareas.length}
+            <strong>✅ Successfully saved!</strong><br>
+            Saved descriptions: ${savedCount} of ${textareas.length}
         </div>`;
         statusEl.className = 'save-status';
         
@@ -279,10 +279,10 @@ async function saveAllColumnDescriptions() {
         }, 5000);
     } else {
         statusEl.innerHTML = `<div style="padding: 10px; background: #ffebee; border-radius: 4px; font-size: 12px; color: #c62828;">
-            <strong>⚠️ Сохранение завершено с ошибками</strong><br>
-            Успешно: ${savedCount} из ${textareas.length}<br>
-            Ошибок: ${errorCount}<br>
-            ${errors.length > 0 ? '<div style="margin-top: 5px; font-size: 11px;">' + errors.slice(0, 5).join('<br>') + (errors.length > 5 ? '<br>... и еще ' + (errors.length - 5) + ' ошибок' : '') + '</div>' : ''}
+            <strong>⚠️ Save completed with errors</strong><br>
+            Success: ${savedCount} of ${textareas.length}<br>
+            Errors: ${errorCount}<br>
+            ${errors.length > 0 ? '<div style="margin-top: 5px; font-size: 11px;">' + errors.slice(0, 5).join('<br>') + (errors.length > 5 ? '<br>... and ' + (errors.length - 5) + ' more errors' : '') + '</div>' : ''}
         </div>`;
         statusEl.className = 'save-status error';
     }
@@ -292,7 +292,7 @@ async function saveAllColumnDescriptions() {
 function updateProgress(saved, total, errors) {
     const progressEl = document.getElementById('saveProgress');
     if (progressEl) {
-        progressEl.textContent = `Обработано: ${saved} / ${total}${errors > 0 ? ` (ошибок: ${errors})` : ''}`;
+        progressEl.textContent = `Processed: ${saved} / ${total}${errors > 0 ? ` (errors: ${errors})` : ''}`;
     }
 }
 
@@ -310,42 +310,42 @@ function showGenerateTableInfo() {
     
     content.innerHTML = `
         <div class="info-section">
-            <h3>📋 Что будет сделано:</h3>
+            <h3>📋 What will be done:</h3>
             <ol style="line-height: 1.8;">
-                <li><strong>Получение sample данных:</strong>
+                <li><strong>Get sample data:</strong>
                     <ul style="margin-top: 5px; margin-left: 20px;">
-                        <li>Запрос к BigQuery: <code>TABLESAMPLE SYSTEM (2 PERCENT)</code></li>
-                        <li>Получение первых 5 строк данных из таблицы</li>
-                        <li>Форматирование данных для включения в промпт</li>
+                        <li>Query BigQuery: <code>TABLESAMPLE SYSTEM (2 PERCENT)</code></li>
+                        <li>Get first 5 rows of data from the table</li>
+                        <li>Format data for inclusion in the prompt</li>
                     </ul>
                 </li>
-                <li><strong>Формирование промпта для OpenAI:</strong>
+                <li><strong>Form OpenAI prompt:</strong>
                     <ul style="margin-top: 5px; margin-left: 20px;">
-                        <li>Информация о таблице: <code>${dataset}.${tableName}</code></li>
-                        <li>Список колонок с типами данных</li>
-                        <li>Sample данные (первые 3 строки)</li>
-                        <li>Инструкции для AI по генерации описания</li>
+                        <li>Table information: <code>${dataset}.${tableName}</code></li>
+                        <li>List of columns with data types</li>
+                        <li>Sample data (first 3 rows)</li>
+                        <li>Instructions for AI to generate description</li>
                     </ul>
                 </li>
-                <li><strong>Генерация через OpenAI:</strong>
+                <li><strong>Generate via OpenAI:</strong>
                     <ul style="margin-top: 5px; margin-left: 20px;">
-                        <li>Модель: GPT-4o-mini (или настроенная модель)</li>
-                        <li>Температура: 0.6 (баланс между креативностью и точностью)</li>
-                        <li>Максимум токенов: 300</li>
+                        <li>Model: GPT-4o-mini (or configured model)</li>
+                        <li>Temperature: 0.6 (balance between creativity and accuracy)</li>
+                        <li>Max tokens: 300</li>
                     </ul>
                 </li>
-                <li><strong>Сохранение результата:</strong>
+                <li><strong>Save result:</strong>
                     <ul style="margin-top: 5px; margin-left: 20px;">
-                        <li>Автоматическое сохранение в таблицу метаданных</li>
-                        <li>Обновление описания в BigQuery schema</li>
-                        <li>Отображение стоимости запроса</li>
+                        <li>Automatically save to metadata table</li>
+                        <li>Update description in BigQuery schema</li>
+                        <li>Display request cost</li>
                     </ul>
                 </li>
             </ol>
         </div>
         <div class="info-section" style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 4px;">
-            <p><strong>💰 Стоимость:</strong> Примерно $0.0001-0.0005 за запрос (зависит от размера таблицы)</p>
-            <p><strong>⏱ Время:</strong> Обычно 2-5 секунд</p>
+            <p><strong>💰 Cost:</strong> Approximately $0.0001-0.0005 per request (depends on table size)</p>
+            <p><strong>⏱ Time:</strong> Usually 2-5 seconds</p>
         </div>
     `;
     
@@ -360,43 +360,43 @@ function showGenerateColumnInfo(dataset, tableName, columnName) {
     
     content.innerHTML = `
         <div class="info-section">
-            <h3>📋 Что будет сделано:</h3>
+            <h3>📋 What will be done:</h3>
             <ol style="line-height: 1.8;">
-                <li><strong>Получение sample значений колонки:</strong>
+                <li><strong>Get sample column values:</strong>
                     <ul style="margin-top: 5px; margin-left: 20px;">
-                        <li>Запрос к BigQuery: <code>SELECT DISTINCT \`${columnName}\` FROM ... TABLESAMPLE SYSTEM (2 PERCENT)</code></li>
-                        <li>Получение уникальных значений (до 5 примеров)</li>
-                        <li>Форматирование значений для промпта</li>
+                        <li>Query BigQuery: <code>SELECT DISTINCT \`${columnName}\` FROM ... TABLESAMPLE SYSTEM (2 PERCENT)</code></li>
+                        <li>Get unique values (up to 5 examples)</li>
+                        <li>Format values for the prompt</li>
                     </ul>
                 </li>
-                <li><strong>Формирование промпта для OpenAI:</strong>
+                <li><strong>Form OpenAI prompt:</strong>
                     <ul style="margin-top: 5px; margin-left: 20px;">
-                        <li>Информация о таблице: <code>${dataset}.${tableName}</code></li>
-                        <li>Название колонки: <code>${columnName}</code></li>
-                        <li>Тип данных колонки</li>
-                        <li>Sample значения (если доступны)</li>
-                        <li>Инструкции для AI по генерации описания колонки</li>
+                        <li>Table information: <code>${dataset}.${tableName}</code></li>
+                        <li>Column name: <code>${columnName}</code></li>
+                        <li>Column data type</li>
+                        <li>Sample values (if available)</li>
+                        <li>Instructions for AI to generate column description</li>
                     </ul>
                 </li>
-                <li><strong>Генерация через OpenAI:</strong>
+                <li><strong>Generate via OpenAI:</strong>
                     <ul style="margin-top: 5px; margin-left: 20px;">
-                        <li>Модель: GPT-4o-mini (или настроенная модель)</li>
-                        <li>Температура: 0.5 (более точное описание)</li>
-                        <li>Максимум токенов: 200</li>
+                        <li>Model: GPT-4o-mini (or configured model)</li>
+                        <li>Temperature: 0.5 (more accurate description)</li>
+                        <li>Max tokens: 200</li>
                     </ul>
                 </li>
-                <li><strong>Сохранение результата:</strong>
+                <li><strong>Save result:</strong>
                     <ul style="margin-top: 5px; margin-left: 20px;">
-                        <li>Автоматическое сохранение в таблицу метаданных</li>
-                        <li>Обновление описания колонки в BigQuery schema</li>
-                        <li>Отображение стоимости запроса</li>
+                        <li>Automatically save to metadata table</li>
+                        <li>Update column description in BigQuery schema</li>
+                        <li>Display request cost</li>
                     </ul>
                 </li>
             </ol>
         </div>
         <div class="info-section" style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 4px;">
-            <p><strong>💰 Стоимость:</strong> Примерно $0.00005-0.0002 за запрос</p>
-            <p><strong>⏱ Время:</strong> Обычно 1-3 секунды</p>
+            <p><strong>💰 Cost:</strong> Approximately $0.00005-0.0002 per request</p>
+            <p><strong>⏱ Time:</strong> Usually 1-3 seconds</p>
         </div>
     `;
     
@@ -412,7 +412,7 @@ function closeGenerateInfoModal() {
 
 // Confirm and proceed with generation
 function confirmGenerate() {
-    // Сохраняем данные перед закрытием модального окна
+    // Save data before closing modal
     const action = pendingGenerateAction;
     
     if (!action) {
@@ -420,10 +420,10 @@ function confirmGenerate() {
         return;
     }
     
-    // Закрываем модальное окно
+    // Close modal
     closeGenerateInfoModal();
     
-    // Выполняем генерацию
+    // Execute generation
     if (action.type === 'table') {
         generateTableDescription();
     } else if (action.type === 'column') {
@@ -457,9 +457,9 @@ async function generateTableDescription() {
     
     // Show detailed progress
     let progressHtml = '<div style="margin-top: 10px; padding: 10px; background: #f0f0f0; border-radius: 4px; font-size: 12px;">';
-    progressHtml += '<strong>🔄 Процесс генерации:</strong><ul style="margin: 5px 0; padding-left: 20px;">';
-    progressHtml += '<li>Подключение к BigQuery...</li>';
-    progressHtml += '<li>Получение информации о таблице...</li>';
+    progressHtml += '<strong>🔄 Generation process:</strong><ul style="margin: 5px 0; padding-left: 20px;">';
+    progressHtml += '<li>Connecting to BigQuery...</li>';
+    progressHtml += '<li>Getting table information...</li>';
     progressHtml += '</ul></div>';
     
     statusEl.innerHTML = progressHtml;
@@ -477,10 +477,10 @@ async function generateTableDescription() {
             
             // Show detailed success message with stats
             let successHtml = '<div style="margin-top: 10px; padding: 10px; background: #e8f5e9; border-radius: 4px; font-size: 12px;">';
-            successHtml += '<strong>✅ Успешно сгенерировано!</strong><br>';
+            successHtml += '<strong>✅ Successfully generated!</strong><br>';
             
             if (data.steps) {
-                successHtml += '<div style="margin-top: 8px;"><strong>Этапы выполнения:</strong><ul style="margin: 5px 0; padding-left: 20px;">';
+                successHtml += '<div style="margin-top: 8px;"><strong>Execution steps:</strong><ul style="margin: 5px 0; padding-left: 20px;">';
                 data.steps.forEach(step => {
                     successHtml += `<li>${step}</li>`;
                 });
@@ -488,22 +488,22 @@ async function generateTableDescription() {
             }
             
             if (data.stats) {
-                successHtml += '<div style="margin-top: 8px;"><strong>📊 Статистика:</strong><ul style="margin: 5px 0; padding-left: 20px;">';
-                successHtml += `<li>Всего колонок: ${data.stats.total_columns}</li>`;
+                successHtml += '<div style="margin-top: 8px;"><strong>📊 Statistics:</strong><ul style="margin: 5px 0; padding-left: 20px;">';
+                successHtml += `<li>Total columns: ${data.stats.total_columns}</li>`;
                 if (data.stats.sensitive_columns > 0) {
-                    successHtml += `<li>Чувствительных колонок: ${data.stats.sensitive_columns}</li>`;
+                    successHtml += `<li>Sensitive columns: ${data.stats.sensitive_columns}</li>`;
                 }
                 if (data.stats.sample_rows > 0) {
-                    successHtml += `<li>Sample строк: ${data.stats.sample_rows}</li>`;
-                    successHtml += `<li>Sample колонок: ${data.stats.sample_columns}</li>`;
+                    successHtml += `<li>Sample rows: ${data.stats.sample_rows}</li>`;
+                    successHtml += `<li>Sample columns: ${data.stats.sample_columns}</li>`;
                 }
-                successHtml += `<li>Модель: ${data.stats.model}</li>`;
-                successHtml += `<li>Длина промпта: ${data.stats.prompt_length} символов</li>`;
+                successHtml += `<li>Model: ${data.stats.model}</li>`;
+                successHtml += `<li>Prompt length: ${data.stats.prompt_length} characters</li>`;
                 successHtml += '</ul></div>';
             }
             
-            successHtml += `<div style="margin-top: 8px;"><strong>💰 Стоимость:</strong> $${data.cost.toFixed(4)}`;
-            successHtml += ` (${data.tokens.prompt} промпт + ${data.tokens.completion} ответ = ${data.tokens.prompt + data.tokens.completion} токенов)</div>`;
+            successHtml += `<div style="margin-top: 8px;"><strong>💰 Cost:</strong> $${data.cost.toFixed(4)}`;
+            successHtml += ` (${data.tokens.prompt} prompt + ${data.tokens.completion} completion = ${data.tokens.prompt + data.tokens.completion} tokens)</div>`;
             successHtml += '</div>';
             
             statusEl.innerHTML = successHtml;
@@ -515,12 +515,12 @@ async function generateTableDescription() {
             }, 15000); // Show for 15 seconds
         } else {
             const error = await response.json();
-            statusEl.innerHTML = `<div style="margin-top: 10px; padding: 10px; background: #ffebee; border-radius: 4px; color: #c62828;"><strong>✗ Ошибка:</strong> ${error.detail || 'Неизвестная ошибка'}</div>`;
+            statusEl.innerHTML = `<div style="margin-top: 10px; padding: 10px; background: #ffebee; border-radius: 4px; color: #c62828;"><strong>✗ Error:</strong> ${error.detail || 'Unknown error'}</div>`;
             statusEl.className = 'save-status error';
             descriptionEl.disabled = false;
         }
     } catch (error) {
-        statusEl.innerHTML = `<div style="margin-top: 10px; padding: 10px; background: #ffebee; border-radius: 4px; color: #c62828;"><strong>✗ Ошибка соединения:</strong> ${error.message}</div>`;
+        statusEl.innerHTML = `<div style="margin-top: 10px; padding: 10px; background: #ffebee; border-radius: 4px; color: #c62828;"><strong>✗ Connection error:</strong> ${error.message}</div>`;
         statusEl.className = 'save-status error';
         descriptionEl.disabled = false;
     }
@@ -536,7 +536,7 @@ async function generateColumnDescription(dataset, tableName, columnName) {
     if (!textarea) return;
     
     // Show progress
-    statusEl.innerHTML = '<div style="font-size: 11px; color: #666;">🔄 Генерация...</div>';
+    statusEl.innerHTML = '<div style="font-size: 11px; color: #666;">🔄 Generating...</div>';
     statusEl.className = 'save-status';
     textarea.disabled = true;
     
@@ -554,7 +554,7 @@ async function generateColumnDescription(dataset, tableName, columnName) {
             
             // Show detailed success message
             let successHtml = '<div style="font-size: 11px; padding: 5px; background: #e8f5e9; border-radius: 3px; margin-top: 5px;">';
-            successHtml += '<strong>✅ Сгенерировано!</strong><br>';
+            successHtml += '<strong>✅ Generated!</strong><br>';
             
             if (data.steps) {
                 successHtml += '<div style="margin-top: 5px; font-size: 10px;">';
@@ -564,22 +564,22 @@ async function generateColumnDescription(dataset, tableName, columnName) {
                     }
                 });
                 if (data.steps.length > 3) {
-                    successHtml += `... и еще ${data.steps.length - 3} этапов<br>`;
+                    successHtml += `... and ${data.steps.length - 3} more steps<br>`;
                 }
                 successHtml += '</div>';
             }
             
             if (data.stats) {
                 successHtml += `<div style="margin-top: 5px; font-size: 10px;">`;
-                successHtml += `Тип: ${data.stats.data_type}`;
+                successHtml += `Type: ${data.stats.data_type}`;
                 if (data.stats.sample_values_count > 0) {
                     successHtml += ` | Sample: ${data.stats.sample_values_count}`;
                 }
-                successHtml += ` | Модель: ${data.stats.model}`;
+                successHtml += ` | Model: ${data.stats.model}`;
                 successHtml += '</div>';
             }
             
-            successHtml += `<div style="margin-top: 5px; font-size: 10px; font-weight: bold;">💰 $${data.cost.toFixed(4)} (${data.tokens.prompt + data.tokens.completion} токенов)</div>`;
+            successHtml += `<div style="margin-top: 5px; font-size: 10px; font-weight: bold;">💰 $${data.cost.toFixed(4)} (${data.tokens.prompt + data.tokens.completion} tokens)</div>`;
             successHtml += '</div>';
             
             statusEl.innerHTML = successHtml;
@@ -591,12 +591,12 @@ async function generateColumnDescription(dataset, tableName, columnName) {
             }, 12000); // Show for 12 seconds
         } else {
             const error = await response.json();
-            statusEl.innerHTML = `<div style="font-size: 11px; padding: 5px; background: #ffebee; border-radius: 3px; color: #c62828;"><strong>✗ Ошибка:</strong> ${error.detail || 'Неизвестная ошибка'}</div>`;
+            statusEl.innerHTML = `<div style="font-size: 11px; padding: 5px; background: #ffebee; border-radius: 3px; color: #c62828;"><strong>✗ Error:</strong> ${error.detail || 'Unknown error'}</div>`;
             statusEl.className = 'save-status error';
             textarea.disabled = false;
         }
     } catch (error) {
-        statusEl.innerHTML = `<div style="font-size: 11px; padding: 5px; background: #ffebee; border-radius: 3px; color: #c62828;"><strong>✗ Ошибка соединения:</strong> ${error.message}</div>`;
+        statusEl.innerHTML = `<div style="font-size: 11px; padding: 5px; background: #ffebee; border-radius: 3px; color: #c62828;"><strong>✗ Connection error:</strong> ${error.message}</div>`;
         statusEl.className = 'save-status error';
         textarea.disabled = false;
     }
