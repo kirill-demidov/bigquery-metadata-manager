@@ -245,10 +245,6 @@ PREFER_META_OVER_BQ = True
 - Materialized Views: обновление схемы колонок пропускается для материализованных представлений
 - Шардированные таблицы: автоматически исключаются из обработки (суффиксы `_YYYYMMDD` / `_YYMMDD`)
 
-## Лицензия
-
-MIT License - см. файл [LICENSE](LICENSE) для деталей.
-
 ## Вклад
 
 Приветствуются Pull Requests! Пожалуйста, убедитесь, что:
@@ -256,6 +252,29 @@ MIT License - см. файл [LICENSE](LICENSE) для деталей.
 1. Код соответствует стилю проекта
 2. Добавлены тесты для новых функций
 3. Обновлена документация
+
+## Проверка сервисного аккаунта
+
+Для проверки прав сервисного аккаунта Cloud Run:
+
+```bash
+PROJECT_ID="your-project-id"
+PROJECT_NUMBER=$(gcloud projects describe ${PROJECT_ID} --format='value(projectNumber)')
+SA_EMAIL="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+
+# Проверить IAM роли на BigQuery
+gcloud projects get-iam-policy ${PROJECT_ID} \
+  --flatten="bindings[].members" \
+  --filter="bindings.members:${SA_EMAIL}" \
+  --format="table(bindings.role)"
+
+# Проверить права на Secret Manager
+SECRET_NAME="your-secret-name"
+gcloud secrets get-iam-policy ${SECRET_NAME} \
+  --flatten="bindings[].members" \
+  --filter="bindings.members:${SA_EMAIL}" \
+  --format="table(bindings.role)"
+```
 
 ## Поддержка
 
@@ -267,6 +286,6 @@ MIT License - см. файл [LICENSE](LICENSE) для деталей.
 4. Доступность OpenAI API
 5. Правильность переменных окружения
 
-## Авторы
+## Лицензия
 
-Создано для автоматизации управления метаданными BigQuery с использованием OpenAI.
+MIT License - см. файл [LICENSE](LICENSE) для деталей.
