@@ -18,6 +18,13 @@ import re
 import httpx
 import logging
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv not installed, use system environment variables
+
 from auth import oauth, require_auth, get_user_bigquery_client, get_current_user
 
 # Initialize logger first
